@@ -1,0 +1,6 @@
+outs:
+- md5: 2df2a80a51a864adf71495fe0a779c3f.dir
+  size: 1100966
+  nfiles: 4
+  hash: md5
+  path: sutd

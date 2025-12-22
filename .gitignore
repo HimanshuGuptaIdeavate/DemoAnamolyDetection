@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+mlruns/
+/data/raw/sutd
+/data/interim/
+/data/processed/
+.ipynb_checkpoints/

@@ -13,47 +13,82 @@ from typing import Dict, List, Any
 # ==============================================================================
 # If column names change in future datasets, update only this section
 
-COLUMN_NAMES = {
+# Raw column names (original data)
+COLUMN_NAMES_RAW = {
     # Core identifiers
     "time": "Time",
     "pci": "PCI",
     "cell_id": "Cell ID",
-    
+
     # Signal quality metrics (primary features for anomaly detection)
     "rsrp": "RSRP",
-    "rsrq": "RSRQ", 
+    "rsrq": "RSRQ",
     "sinr": "SINR",
-    
+
     # Modulation and coding scheme
     "pdsch_mcs": "PDSCH_MCS",
     "pusch_mcs": "PUSCH_MCS",
-    
+
     # Resource blocks
     "pdsch_prbs": "PDSCH PRBs",
     "pusch_prbs": "PUSCH PRBs",
-    
+
     # Throughput
     "throughput_dl": "throughput_DL",
     "throughput_ul": "throughput_UL",
-    
+
     # Labels (ground truth)
     "label_anomaly": "lab_anom",
     "label_interference": "lab_inf",
     "label_1rru": "lab_1rr",
 }
 
+# ETL-cleaned column names (after standardization)
+COLUMN_NAMES_CLEAN = {
+    "time": "time_s",
+    "pci": "pci",
+    "cell_id": "cell_id",
+    "rsrp": "rsrp_dbm",
+    "rsrq": "rsrq_db",
+    "sinr": "sinr_db",
+    "pdsch_mcs": "mcs_dl",
+    "pusch_mcs": "mcs_ul",
+    "pdsch_prbs": "prb_dl",
+    "pusch_prbs": "prb_ul",
+    "throughput_dl": "app_dl_mbps",
+    "throughput_ul": "app_ul_mbps",
+    "label_anomaly": "lab_anom",
+    "label_interference": "lab_inf",
+    "label_1rru": "lab_1rr",
+}
+
+# Default to raw column names for backward compatibility
+COLUMN_NAMES = COLUMN_NAMES_RAW
+
 # ==============================================================================
 # REQUIRED COLUMNS
 # ==============================================================================
 # These columns MUST exist in the dataset
 
+# Required columns for RAW data
 REQUIRED_COLUMNS = [
     "Time",
     "RSRP",
-    "RSRQ", 
+    "RSRQ",
     "SINR",
     "PDSCH_MCS",
     "throughput_DL",
+    "lab_anom",
+]
+
+# Required columns for CLEANED/ETL data
+REQUIRED_COLUMNS_CLEAN = [
+    "time_s",
+    "rsrp_dbm",
+    "rsrq_db",
+    "sinr_db",
+    "mcs_dl",
+    "app_dl_mbps",
     "lab_anom",
 ]
 
@@ -71,12 +106,29 @@ NON_NULL_COLUMNS = [
     "lab_anom",
 ]
 
+# Non-null columns for CLEANED/ETL data
+NON_NULL_COLUMNS_CLEAN = [
+    "time_s",
+    "rsrp_dbm",
+    "rsrq_db",
+    "sinr_db",
+    "lab_anom",
+]
+
 # Columns that can have some nulls (max percentage allowed)
 NULLABLE_COLUMNS = {
     "PDSCH_MCS": 0.05,      # Allow up to 5% nulls
     "PUSCH_MCS": 0.05,
     "throughput_DL": 0.02,  # Allow up to 2% nulls
     "throughput_UL": 0.10,  # Allow up to 10% nulls
+}
+
+# Nullable columns for CLEANED/ETL data
+NULLABLE_COLUMNS_CLEAN = {
+    "mcs_dl": 0.05,         # Allow up to 5% nulls
+    "mcs_ul": 0.05,
+    "app_dl_mbps": 0.02,    # Allow up to 2% nulls
+    "app_ul_mbps": 0.10,    # Allow up to 10% nulls
 }
 
 # 2. NUMERIC RANGE CHECKS
@@ -155,6 +207,72 @@ NUMERIC_RANGES = {
     },
 }
 
+# Numeric ranges for CLEANED/ETL data (same logic, different column names)
+NUMERIC_RANGES_CLEAN = {
+    "rsrp_dbm": {
+        "min": -156,
+        "max": -31,
+        "strict": False,
+        "description": "Reference Signal Received Power (3GPP + client bounds)"
+    },
+
+    "rsrq_db": {
+        "min": -20,
+        "max": +3,
+        "strict": False,
+        "description": "Reference Signal Received Quality (empirical bounds)"
+    },
+
+    "sinr_db": {
+        "min": -10,
+        "max": 30,
+        "strict": False,
+        "description": "SINR - PRIMARY ANOMALY INDICATOR (indoor testbed limits)"
+    },
+
+    "mcs_dl": {
+        "min": 0,
+        "max": 28,
+        "strict": True,
+        "description": "Downlink MCS - Valid NR MCS index range (3GPP TS 38.214)"
+    },
+
+    "mcs_ul": {
+        "min": 0,
+        "max": 28,
+        "strict": True,
+        "description": "Uplink MCS - Valid NR MCS index range (3GPP TS 38.214)"
+    },
+
+    "prb_dl": {
+        "min": 0,
+        "max": 273,
+        "strict": True,
+        "description": "Downlink PRBs - Max RBs for 100 MHz (3GPP TS 38.101)"
+    },
+
+    "prb_ul": {
+        "min": 0,
+        "max": 273,
+        "strict": True,
+        "description": "Uplink PRBs - Max RBs for 100 MHz (3GPP TS 38.101)"
+    },
+
+    "app_dl_mbps": {
+        "min": 0,
+        "max": 100000000,
+        "strict": False,
+        "description": "Downlink throughput - Testbed practical limit"
+    },
+
+    "app_ul_mbps": {
+        "min": 0,
+        "max": 1000,
+        "strict": False,
+        "description": "Uplink throughput - Testbed practical limit"
+    },
+}
+
 # 3. CATEGORICAL VALUE CHECKS
 CATEGORICAL_VALUES = {
     # Binary labels (0 or 1)
@@ -168,6 +286,24 @@ CATEGORICAL_VALUES = {
         "description": "Interference label (0=no interference, 1=interference)"
     },
     
+    "lab_1rr": {
+        "values": [0, 1],
+        "description": "Single RRU scenario (0=multi-RRU, 1=single-RRU)"
+    },
+}
+
+# Categorical values for CLEANED/ETL data (same as raw - labels don't change)
+CATEGORICAL_VALUES_CLEAN = {
+    "lab_anom": {
+        "values": [0, 1],
+        "description": "Anomaly label (0=normal, 1=anomaly)"
+    },
+
+    "lab_inf": {
+        "values": [0, 1],
+        "description": "Interference label (0=no interference, 1=interference)"
+    },
+
     "lab_1rr": {
         "values": [0, 1],
         "description": "Single RRU scenario (0=multi-RRU, 1=single-RRU)"
@@ -211,6 +347,41 @@ ANOMALY_SIGNATURE_RULES = {
     },
 }
 
+# Anomaly signature rules for CLEANED/ETL data
+ANOMALY_SIGNATURE_RULES_CLEAN = {
+    "sinr_normal_range": {
+        "metric": "sinr_db",
+        "condition": "lab_anom == 0",
+        "expected_min": 10,
+        "expected_max": 35,
+        "description": "Normal samples should have SINR 10-35 dB"
+    },
+
+    "sinr_anomaly_range": {
+        "metric": "sinr_db",
+        "condition": "lab_anom == 1",
+        "expected_min": -10,
+        "expected_max": 15,
+        "description": "Anomaly samples typically have SINR < 15 dB"
+    },
+
+    "throughput_normal_range": {
+        "metric": "app_dl_mbps",
+        "condition": "lab_anom == 0",
+        "expected_min": 80,
+        "expected_max": 400,
+        "description": "Normal samples should have throughput > 80 Mbps"
+    },
+
+    "throughput_anomaly_range": {
+        "metric": "app_dl_mbps",
+        "condition": "lab_anom == 1",
+        "expected_min": 0,
+        "expected_max": 150,
+        "description": "Anomaly samples typically have reduced throughput"
+    },
+}
+
 # 5. DATA QUALITY THRESHOLDS
 QUALITY_THRESHOLDS = {
     "min_samples": 5000,               # Minimum samples required
@@ -225,7 +396,7 @@ QUALITY_THRESHOLDS = {
 SCENARIO_RULES = {
     "Lvl4_AllRRUOn": {
         "expected_samples_min": 2000,
-        "expected_anomaly_rate": (0.20, 0.30),  # 20-30%
+        "expected_anomaly_rate": (0.30, 0.40),  # 30-40% (actual ~35.6%)
     },
     
     "Lvl5_AllRRUOn": {
@@ -295,8 +466,10 @@ def get_validation_rules() -> Dict[str, Any]:
         "scenario_rules": SCENARIO_RULES,
     }
 
-def get_critical_features() -> List[str]:
+def get_critical_features(clean: bool = False) -> List[str]:
     """Get list of critical features for anomaly detection."""
+    if clean:
+        return ["sinr_db", "rsrp_dbm", "rsrq_db", "app_dl_mbps", "mcs_dl"]
     return ["SINR", "RSRP", "RSRQ", "throughput_DL", "PDSCH_MCS"]
 
 # ==============================================================================

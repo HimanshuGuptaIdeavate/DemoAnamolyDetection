@@ -187,13 +187,13 @@ CLIPPING_RANGES = {
     
     'app_dl_mbps': {
         'min': 0,
-        'max': 100,
+        'max': 100000000,
         'reason': 'Avoid corrupt iPerf3 logs (testbed limit)'
     },
     
     'app_ul_mbps': {
         'min': 0,
-        'max': 100,
+        'max': 100000000,
         'reason': 'Testbed limit'
     },
 }

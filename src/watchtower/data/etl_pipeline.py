@@ -221,30 +221,47 @@ class ETLPipeline:
     def coerce_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Coerce columns to appropriate data types.
-        
+
         Args:
             df: DataFrame with standardized column names
-            
+
         Returns:
             DataFrame with corrected types
         """
         self.log("\n" + "="*80)
         self.log("STEP 2B: TRANSFORM - Type Coercion", "INFO")
         self.log("="*80)
-        
+
         df_typed = df.copy()
-        
+
+        # Special handling for time_s column - may contain datetime strings
+        if 'time_s' in df_typed.columns:
+            # Check if it looks like datetime strings (not numeric)
+            sample_value = df_typed['time_s'].dropna().iloc[0] if len(df_typed['time_s'].dropna()) > 0 else None
+            if sample_value is not None and isinstance(sample_value, str) and '-' in sample_value:
+                self.log(f"  📅 Detected datetime format in time_s column, parsing...")
+                # Parse datetime strings
+                df_typed['time_s'] = pd.to_datetime(df_typed['time_s'], errors='coerce')
+                # Convert to Unix timestamp in seconds
+                df_typed['time_s'] = df_typed['time_s'].astype('int64') // 10**9
+                self.log(f"  ✓ Converted datetime strings to Unix timestamps")
+
         # Convert numeric columns
         coerced_count = 0
         for col in NUMERIC_COLUMNS:
             if col in df_typed.columns:
+                # Skip time_s if already handled above
+                if col == 'time_s' and df_typed[col].dtype in ['int64', 'float64']:
+                    coerced_count += 1
+                    continue
+
                 original_dtype = df_typed[col].dtype
                 df_typed[col] = pd.to_numeric(df_typed[col], errors='coerce')
-                
+
                 nulls_introduced = df_typed[col].isnull().sum() - df[col].isnull().sum()
                 if nulls_introduced > 0:
                     self.log(f"  ⚠️  {col}: {nulls_introduced} invalid values → NaN")
-                
+
                 coerced_count += 1
         
         # Convert to appropriate dtypes for memory efficiency
@@ -565,8 +582,8 @@ class ETLPipeline:
         self.log("="*80)
         
         try:
-            from validate_data import WatchtowerValidator
-            
+            from watchtower.data.validate_data import WatchtowerValidator
+
             # Save temporary CSV for validation
             temp_csv = get_output_path("temp_clean.csv", "interim")
             df.to_csv(temp_csv, index=False)

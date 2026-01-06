@@ -240,11 +240,22 @@ class ETLPipeline:
             sample_value = df_typed['time_s'].dropna().iloc[0] if len(df_typed['time_s'].dropna()) > 0 else None
             if sample_value is not None and isinstance(sample_value, str) and '-' in sample_value:
                 self.log(f"  📅 Detected datetime format in time_s column, parsing...")
-                # Parse datetime strings
+                # Parse datetime strings to datetime objects
                 df_typed['time_s'] = pd.to_datetime(df_typed['time_s'], errors='coerce')
-                # Convert to Unix timestamp in seconds
-                df_typed['time_s'] = df_typed['time_s'].astype('int64') // 10**9
-                self.log(f"  ✓ Converted datetime strings to Unix timestamps")
+
+                # Convert to RELATIVE seconds (time since first record in each scenario)
+                # This preserves the expected time_s format (0, 0.5, 1, 1.5, etc.)
+                if 'scenario_id' in df_typed.columns:
+                    # Calculate relative time per scenario
+                    df_typed['time_s'] = df_typed.groupby('scenario_id')['time_s'].transform(
+                        lambda x: (x - x.min()).dt.total_seconds()
+                    )
+                    self.log(f"  ✓ Converted datetime strings to relative seconds (per scenario)")
+                else:
+                    # Single scenario - calculate relative time from first record
+                    min_time = df_typed['time_s'].min()
+                    df_typed['time_s'] = (df_typed['time_s'] - min_time).dt.total_seconds()
+                    self.log(f"  ✓ Converted datetime strings to relative seconds")
 
         # Convert numeric columns
         coerced_count = 0

@@ -1,0 +1,36 @@
+categorical_cols:
+- pci_mode
+- scenario_id
+n_categorical_features: 2
+n_numeric_features: 27
+numeric_cols:
+- rsrp_mean
+- rsrp_std
+- rsrq_mean
+- rsrq_std
+- sinr_mean
+- sinr_std
+- sinr_min
+- sinr_max
+- prb_dl_mean
+- prb_ul_mean
+- mcs_dl_mode
+- mcs_ul_mode
+- app_dl_mean
+- app_dl_std
+- d_rsrp_mean
+- d_rsrq_mean
+- d_sinr_mean
+- d_sinr_std
+- d_app_dl_mean
+- rsrp_rsrq_ratio
+- sinr_range
+- throughput_per_prb
+- prb_util_ratio
+- sinr_cv
+- throughput_efficiency
+- hour_sin
+- hour_cos
+target: weak_label
+total_features_after_encoding: 33
+window_seconds: 5

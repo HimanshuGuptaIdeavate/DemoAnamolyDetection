@@ -1,0 +1,84 @@
+# WATCHTOWER Preprocessing Configuration
+# Configuration for scaling and encoding features
+
+# Input/Output Paths
+input_path: 'data/parquet/features_table.parquet'
+output_dir: 'data/parquet'
+artifacts_dir: 'artifacts'
+configs_dir: 'configs'
+
+# Numeric Features (27 total)
+numeric_features:
+  # Signal quality (8)
+  - rsrp_mean
+  - rsrp_std
+  - rsrq_mean
+  - rsrq_std
+  - sinr_mean
+  - sinr_std
+  - sinr_min
+  - sinr_max
+  
+  # Resource allocation (4)
+  - prb_dl_mean
+  - prb_ul_mean
+  - mcs_dl_mode
+  - mcs_ul_mode
+  
+  # Throughput (2)
+  - app_dl_mean
+  - app_dl_std
+  
+  # Existing derived features (8)
+  - d_rsrp_mean
+  - d_rsrq_mean
+  - d_sinr_mean
+  - d_sinr_std
+  - d_app_dl_mean
+  - rsrp_rsrq_ratio
+  - sinr_range
+  - throughput_per_prb
+  
+  # New derived features (5)
+  - prb_util_ratio
+  - sinr_cv
+  - throughput_efficiency
+  - hour_sin
+  - hour_cos
+
+# Categorical Features (2 total)
+categorical_features:
+  - pci_mode
+  - scenario_id
+
+# Target Variable
+target: weak_label
+
+# Metadata
+metadata: ts_start_ns
+
+# Scaler Configuration
+scaler:
+  type: StandardScaler
+  with_mean: true
+  with_std: true
+
+# Encoder Configuration
+encoder:
+  type: OneHotEncoder
+  handle_unknown: ignore  # Critical for production!
+  sparse_output: false
+  drop: null
+
+# Output Configuration
+output:
+  X_dtype: float32
+  y_dtype: int8
+  meta_dtype: int64
+
+# Validation
+validation:
+  min_samples: 500
+  max_missing_ratio: 0.01
+  check_inf: true
+  check_dtypes: true

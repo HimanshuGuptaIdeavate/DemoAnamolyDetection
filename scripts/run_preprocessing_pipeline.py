@@ -101,7 +101,7 @@ def main():
         print("NEXT STEPS:")
         print("="*80)
         print("1. Load X.npy and y.npy")
-        print("2. Perform train-test split (80/20 stratified)")
+        print("2. Perform train-test split (GroupKFold)")
         print("3. Train XGBoost model")
         print("4. Evaluate with SHAP values")
         print("="*80 + "\n")

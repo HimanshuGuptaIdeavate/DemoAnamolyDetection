@@ -110,10 +110,12 @@ RATIO_FEATURES = {
 # LABEL AGGREGATION
 # ==============================================================================
 
-# Label columns to aggregate
-LABEL_COLUMNS = ['lab_anom', 'lab_bs', 'lab_inf', 'lab_1rr']
+# Label columns to aggregate (TRUE anomalies only)
+# NOTE: lab_1rr is EXCLUDED - it indicates 1 RRU configuration, NOT an anomaly
+# NOTE: lab_bs is EXCLUDED - it indicates no coverage from base station
+LABEL_COLUMNS = ['lab_anom', 'lab_inf']
 
-# Weak label: 1 if ANY sample in window has ANY label flag set
+# Weak label: 1 if ANY sample in window has ANY anomaly label flag set
 # This is appropriate for anomaly detection (any anomaly in window = anomalous window)
 WEAK_LABEL_NAME = 'weak_label'
 

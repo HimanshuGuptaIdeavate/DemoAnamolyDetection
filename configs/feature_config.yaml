@@ -2,7 +2,7 @@ categorical_cols:
 - pci_mode
 - scenario_id
 n_categorical_features: 2
-n_numeric_features: 27
+n_numeric_features: 29
 numeric_cols:
 - rsrp_mean
 - rsrp_std
@@ -31,6 +31,8 @@ numeric_cols:
 - throughput_efficiency
 - hour_sin
 - hour_cos
+- is_single_rru
+- scenario_level
 target: weak_label
-total_features_after_encoding: 33
+total_features_after_encoding: 35
 window_seconds: 5

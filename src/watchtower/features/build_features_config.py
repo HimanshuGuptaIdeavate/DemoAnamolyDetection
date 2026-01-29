@@ -119,6 +119,22 @@ def create_throughput_efficiency(df: pd.DataFrame) -> pd.Series:
     return df['app_dl_mean'] / (df['sinr_mean'] + 1e-6)
 
 
+def create_is_single_rru(df: pd.DataFrame) -> pd.Series:
+    """
+    Binary flag: 1 if scenario uses single RRU, 0 if all RRUs.
+    Helps model learn different anomaly patterns for Lvl6_1RRUOn vs AllRRUOn.
+    """
+    return df['scenario_id'].str.contains('1RRU', case=False, na=False).astype(int)
+
+
+def create_scenario_level(df: pd.DataFrame) -> pd.Series:
+    """
+    Extract scenario level (4, 5, or 6) as numeric feature.
+    Different levels may have different signal characteristics.
+    """
+    return df['scenario_id'].str.extract(r'Lvl(\d+)', expand=False).astype(float).fillna(0)
+
+
 # Dictionary of new features to create
 NEW_DERIVED_FEATURES = {
     'prb_util_ratio': {
@@ -140,6 +156,14 @@ NEW_DERIVED_FEATURES = {
     'throughput_efficiency': {
         'function': create_throughput_efficiency,
         'description': 'Throughput per unit SINR',
+    },
+    'is_single_rru': {
+        'function': create_is_single_rru,
+        'description': 'Binary: 1=single RRU (Lvl6_1RRUOn), 0=all RRUs',
+    },
+    'scenario_level': {
+        'function': create_scenario_level,
+        'description': 'Numeric scenario level (4, 5, or 6)',
     },
 }
 
@@ -182,12 +206,14 @@ ALL_NUMERIC_FEATURES = [
     'sinr_range',
     'throughput_per_prb',
     
-    # New derived features (5)
+    # New derived features (7)
     'prb_util_ratio',
     'sinr_cv',
     'throughput_efficiency',
     'hour_sin',
     'hour_cos',
+    'is_single_rru',
+    'scenario_level',
 ]
 
 # Final column order for features_table.parquet

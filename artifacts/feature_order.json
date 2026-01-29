@@ -26,6 +26,8 @@
   "throughput_efficiency",
   "hour_sin",
   "hour_cos",
+  "is_single_rru",
+  "scenario_level",
   "ohe_pci_mode_0",
   "ohe_pci_mode_1",
   "ohe_scenario_id_0",

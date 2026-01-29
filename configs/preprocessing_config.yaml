@@ -39,12 +39,14 @@ numeric_features:
   - sinr_range
   - throughput_per_prb
   
-  # New derived features (5)
+  # New derived features (7)
   - prb_util_ratio
   - sinr_cv
   - throughput_efficiency
   - hour_sin
   - hour_cos
+  - is_single_rru
+  - scenario_level
 
 # Categorical Features (2 total)
 categorical_features:

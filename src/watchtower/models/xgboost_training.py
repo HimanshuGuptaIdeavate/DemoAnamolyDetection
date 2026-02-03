@@ -35,6 +35,9 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+# Import threshold selection
+from watchtower.models.threshold_selection import tune_threshold_from_cv
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -596,6 +599,24 @@ class XGBoostTrainer:
             'cv_mean_f1': scores_df['f1'].mean()
         }
 
+        # CV Threshold Tuning with F2-Score
+        if self.config.get('threshold_tuning', {}).get('enabled', True):
+            plots_dir = self.config['artifacts']['plots_dir']
+            optimal_threshold, threshold_metrics = tune_threshold_from_cv(
+                cv_results,
+                save_plot=True,
+                plots_dir=plots_dir
+            )
+
+            # Update metrics with threshold tuning results
+            metrics['optimal_threshold'] = optimal_threshold
+            metrics['threshold_f2_score'] = threshold_metrics['f2_score']
+            metrics['threshold_precision'] = threshold_metrics['precision']
+            metrics['threshold_recall'] = threshold_metrics['recall']
+
+            # Save optimal threshold to config for future use
+            self._save_optimal_threshold(optimal_threshold, threshold_metrics)
+
         # Log to MLflow
         self.log_to_mlflow(final_model, metrics, cv_results)
 
@@ -606,9 +627,43 @@ class XGBoostTrainer:
         logger.info(f"\nModel saved: {model_path}")
         logger.info(f"Mean CV ROC-AUC: {metrics['cv_mean_roc_auc']:.4f}")
         logger.info(f"Mean CV Accuracy: {metrics['cv_mean_accuracy']:.4f}")
+        if 'optimal_threshold' in metrics:
+            logger.info(f"\n⭐ OPTIMAL THRESHOLD (F2): {metrics['optimal_threshold']:.4f}")
+            logger.info(f"   At this threshold:")
+            logger.info(f"   - Recall: {metrics['threshold_recall']:.4f} (catches {metrics['threshold_recall']*100:.1f}% of anomalies)")
+            logger.info(f"   - Precision: {metrics['threshold_precision']:.4f}")
+            logger.info(f"   - F2-Score: {metrics['threshold_f2_score']:.4f}")
         logger.info("\n" + "="*80)
-        
+
         return final_model, cv_results
+
+    def _save_optimal_threshold(self, threshold: float, metrics: Dict):
+        """Save optimal threshold to a JSON file for production use."""
+        threshold_config = {
+            'optimal_threshold': threshold,
+            'method': 'cv_f2_score',
+            'metrics': {
+                'f2_score': metrics['f2_score'],
+                'precision': metrics['precision'],
+                'recall': metrics['recall'],
+                'f1_score': metrics['f1_score'],
+                'accuracy': metrics['accuracy']
+            },
+            'confusion_matrix': {
+                'tp': metrics['tp'],
+                'fp': metrics['fp'],
+                'tn': metrics['tn'],
+                'fn': metrics['fn']
+            },
+            'timestamp': self.timestamp
+        }
+
+        # Save to configs directory
+        output_path = Path('configs') / f'optimal_threshold_{self.timestamp}.json'
+        with open(output_path, 'w') as f:
+            json.dump(threshold_config, f, indent=2)
+
+        logger.info(f"✅ Saved optimal threshold config: {output_path}")
 
 
 def main():

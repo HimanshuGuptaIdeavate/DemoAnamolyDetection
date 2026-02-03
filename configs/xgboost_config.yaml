@@ -52,7 +52,7 @@ xgboost:
 
 # Evaluation
 evaluation:
-  probability_threshold: 0.3 # 0.5
+  probability_threshold: 0.3  # Default threshold (will be optimized by threshold_tuning)
   metrics:
     - 'roc_auc'
     - 'accuracy'
@@ -65,6 +65,13 @@ evaluation:
     - 'roc_curve'
     - 'precision_recall_curve'
     - 'feature_importance'
+
+# Threshold Tuning (CV-based F2-Score optimization)
+# F2 weighs recall 2x more than precision - good for anomaly detection
+threshold_tuning:
+  enabled: true                # Enable automatic threshold tuning
+  method: 'f2_score'           # Optimize F2-Score (favors recall)
+  save_plot: true              # Save threshold analysis plot
 
 # MLflow Tracking
 mlflow:

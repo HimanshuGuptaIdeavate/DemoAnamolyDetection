@@ -23,6 +23,7 @@ from sklearn.model_selection import GroupKFold, train_test_split
 from sklearn.metrics import (
     classification_report,
     roc_auc_score,
+    average_precision_score,
     accuracy_score,
     precision_score,
     recall_score,
@@ -231,12 +232,14 @@ class XGBoostTrainer:
             y_pred_proba = model.predict_proba(X_test)[:, 1]
             y_pred = (y_pred_proba >= self.config['evaluation']['probability_threshold']).astype(int)
 
-            # Handle single-class fold (ROC-AUC undefined)
+            # Handle single-class fold (ROC-AUC and PR-AUC undefined)
             if len(np.unique(y_test)) < 2:
                 roc_auc = np.nan
-                logger.warning(f"⚠️  Fold {fold}: Only one class in test set, ROC-AUC undefined")
+                pr_auc = np.nan
+                logger.warning(f"⚠️  Fold {fold}: Only one class in test set, ROC-AUC/PR-AUC undefined")
             else:
                 roc_auc = roc_auc_score(y_test, y_pred_proba)
+                pr_auc = average_precision_score(y_test, y_pred_proba)
 
             accuracy = accuracy_score(y_test, y_pred)
             precision = precision_score(y_test, y_pred, zero_division=0)
@@ -245,6 +248,7 @@ class XGBoostTrainer:
 
             logger.info(f"\nFold {fold} Results:")
             logger.info(f"   ROC-AUC:   {roc_auc:.4f}" if not np.isnan(roc_auc) else f"   ROC-AUC:   N/A (single class)")
+            logger.info(f"   PR-AUC:    {pr_auc:.4f}" if not np.isnan(pr_auc) else f"   PR-AUC:    N/A (single class)")
             logger.info(f"   Accuracy:  {accuracy:.4f}")
             logger.info(f"   Precision: {precision:.4f}")
             logger.info(f"   Recall:    {recall:.4f}")
@@ -254,6 +258,7 @@ class XGBoostTrainer:
             cv_results['fold_scores'].append({
                 'fold': fold,
                 'roc_auc': roc_auc,
+                'pr_auc': pr_auc,
                 'accuracy': accuracy,
                 'precision': precision,
                 'recall': recall,
@@ -275,8 +280,11 @@ class XGBoostTrainer:
         logger.info("="*80)
         roc_auc_mean = np.nanmean(scores_df['roc_auc'])
         roc_auc_std = np.nanstd(scores_df['roc_auc'])
+        pr_auc_mean = np.nanmean(scores_df['pr_auc'])
+        pr_auc_std = np.nanstd(scores_df['pr_auc'])
         valid_folds = scores_df['roc_auc'].notna().sum()
         logger.info(f"\nMean ROC-AUC:   {roc_auc_mean:.4f} ± {roc_auc_std:.4f} ({valid_folds}/{len(scores_df)} valid folds)")
+        logger.info(f"Mean PR-AUC:    {pr_auc_mean:.4f} ± {pr_auc_std:.4f}")
         logger.info(f"Mean Accuracy:  {scores_df['accuracy'].mean():.4f} ± {scores_df['accuracy'].std():.4f}")
         logger.info(f"Mean Precision: {scores_df['precision'].mean():.4f} ± {scores_df['precision'].std():.4f}")
         logger.info(f"Mean Recall:    {scores_df['recall'].mean():.4f} ± {scores_df['recall'].std():.4f}")
@@ -525,9 +533,9 @@ class XGBoostTrainer:
             # Log CV results if available
             if cv_results:
                 scores_df = pd.DataFrame(cv_results['fold_scores'])
-                for metric in ['roc_auc', 'accuracy', 'precision', 'recall', 'f1']:
-                    mlflow.log_metric(f'cv_mean_{metric}', scores_df[metric].mean())
-                    mlflow.log_metric(f'cv_std_{metric}', scores_df[metric].std())
+                for metric in ['roc_auc', 'pr_auc', 'accuracy', 'precision', 'recall', 'f1']:
+                    mlflow.log_metric(f'cv_mean_{metric}', np.nanmean(scores_df[metric]))
+                    mlflow.log_metric(f'cv_std_{metric}', np.nanstd(scores_df[metric]))
             
             # Log model
             if self.config['mlflow']['log_model']:
@@ -557,7 +565,10 @@ class XGBoostTrainer:
         # Generate plots
         if self.config['evaluation']['generate_plots']:
             plots_dir = self.config['artifacts']['plots_dir']
-            
+
+            # Clean up old plot files before generating new ones
+            self._cleanup_old_plots(plots_dir)
+
             # Use last fold for test evaluation plots
             last_fold_preds = cv_results['fold_predictions'][-1]
             y_test = last_fold_preds['y_true']
@@ -593,6 +604,7 @@ class XGBoostTrainer:
         scores_df = pd.DataFrame(cv_results['fold_scores'])
         metrics = {
             'cv_mean_roc_auc': np.nanmean(scores_df['roc_auc']),
+            'cv_mean_pr_auc': np.nanmean(scores_df['pr_auc']),
             'cv_mean_accuracy': scores_df['accuracy'].mean(),
             'cv_mean_precision': scores_df['precision'].mean(),
             'cv_mean_recall': scores_df['recall'].mean(),
@@ -626,6 +638,7 @@ class XGBoostTrainer:
         logger.info("="*80)
         logger.info(f"\nModel saved: {model_path}")
         logger.info(f"Mean CV ROC-AUC: {metrics['cv_mean_roc_auc']:.4f}")
+        logger.info(f"Mean CV PR-AUC:  {metrics['cv_mean_pr_auc']:.4f}")
         logger.info(f"Mean CV Accuracy: {metrics['cv_mean_accuracy']:.4f}")
         if 'optimal_threshold' in metrics:
             logger.info(f"\n⭐ OPTIMAL THRESHOLD (F2): {metrics['optimal_threshold']:.4f}")
@@ -664,6 +677,29 @@ class XGBoostTrainer:
             json.dump(threshold_config, f, indent=2)
 
         logger.info(f"✅ Saved optimal threshold config: {output_path}")
+
+    def _cleanup_old_plots(self, plots_dir: str):
+        """Remove old plot files before generating new ones."""
+        patterns = [
+            'confusion_matrix_*.png',
+            'roc_curve_*.png',
+            'feature_importance_*.png',
+            'threshold_analysis.png'
+        ]
+
+        plots_path = Path(plots_dir)
+        removed_count = 0
+
+        for pattern in patterns:
+            for old_file in plots_path.glob(pattern):
+                try:
+                    old_file.unlink()
+                    removed_count += 1
+                except Exception as e:
+                    logger.warning(f"Could not remove {old_file}: {e}")
+
+        if removed_count > 0:
+            logger.info(f"🧹 Cleaned up {removed_count} old plot file(s)")
 
 
 def main():

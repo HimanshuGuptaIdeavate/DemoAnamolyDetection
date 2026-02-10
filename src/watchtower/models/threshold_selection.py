@@ -9,9 +9,17 @@ F2 = 5 × (Precision × Recall) / (4 × Precision + Recall)
 - Weighs recall 2x more than precision
 - Perfect for anomaly detection where missing anomalies is costly
 
+Metrics:
+- FPR (False Positive Rate): FP / (FP + TN) - statistical metric
+- FAR (False Alarms/Hour): Operational metric based on window size
+
 Author: Himanshu's WATCHTOWER Project
 Date: 2026-01-30
 """
+
+# Window size in seconds (from windowing_config.py)
+WINDOW_SEC = 5
+WINDOWS_PER_HOUR = 3600 / WINDOW_SEC  # 720 windows per hour
 
 import numpy as np
 import pandas as pd
@@ -100,12 +108,21 @@ class CVThresholdTuner:
             recall = recall_score(self.y_true_pooled, y_pred, zero_division=0)
             f1 = f1_score(self.y_true_pooled, y_pred, zero_division=0)
 
+            # Compute FAR (False Alarm Rate) = FP / (FP + TN)
+            cm_temp = confusion_matrix(self.y_true_pooled, y_pred)
+            if cm_temp.shape == (2, 2):
+                tn_temp, fp_temp, _, _ = cm_temp.ravel()
+                far = fp_temp / (fp_temp + tn_temp) if (fp_temp + tn_temp) > 0 else 0
+            else:
+                far = 0
+
             all_results.append({
                 'threshold': thresh,
                 'f2_score': f2,
                 'f1_score': f1,
                 'precision': precision,
-                'recall': recall
+                'recall': recall,
+                'far': far
             })
 
             if f2 > best_f2:
@@ -124,12 +141,29 @@ class CVThresholdTuner:
         else:
             tn, fp, fn, tp = 0, 0, 0, 0
 
+        # Calculate FPR (statistical) and FAR (operational)
+        n_normal = fp + tn
+        fpr = fp / n_normal if n_normal > 0 else 0
+
+        # Calculate operational FAR (false alarms per hour)
+        # Based on the proportion of normal windows that would trigger false alarms
+        # Assuming continuous monitoring: normal_windows_per_hour * FPR
+        normal_rate_per_hour = n_normal / len(self.y_true_pooled) * WINDOWS_PER_HOUR
+        far_per_hour = fpr * normal_rate_per_hour
+
+        # Total alerts per hour
+        total_alerts = (tp + fp)
+        alert_rate = total_alerts / len(self.y_true_pooled) * WINDOWS_PER_HOUR
+
         result = {
             'optimal_threshold': best_threshold,
             'f2_score': best_f2,
             'f1_score': f1_score(self.y_true_pooled, y_pred_optimal, zero_division=0),
             'precision': precision_score(self.y_true_pooled, y_pred_optimal, zero_division=0),
             'recall': recall_score(self.y_true_pooled, y_pred_optimal, zero_division=0),
+            'fpr': fpr,
+            'far_per_hour': far_per_hour,
+            'total_alerts_per_hour': alert_rate,
             'accuracy': (tp + tn) / len(self.y_true_pooled),
             'tp': int(tp),
             'fp': int(fp),
@@ -144,15 +178,129 @@ class CVThresholdTuner:
         logger.info(f"Recall:            {result['recall']:.4f}")
         logger.info(f"F1-Score:          {result['f1_score']:.4f}")
         logger.info(f"Accuracy:          {result['accuracy']:.4f}")
+
+        logger.info(f"\n📊 FALSE ALARM ANALYSIS:")
+        logger.info(f"  FPR (statistical):    {result['fpr']*100:.1f}%")
+        logger.info(f"  FAR (operational):    {result['far_per_hour']:.1f} false alarms/hour")
+        logger.info(f"  Total Alerts:         {result['total_alerts_per_hour']:.1f} alerts/hour")
+        if far_per_hour > 0:
+            logger.info(f"  Time Between FA:      {60/far_per_hour:.1f} minutes")
+
         logger.info(f"\nConfusion Matrix:")
         logger.info(f"  TP: {result['tp']} | FP: {result['fp']}")
         logger.info(f"  FN: {result['fn']} | TN: {result['tn']}")
         logger.info(f"\nInterpretation:")
         logger.info(f"  Catches {result['recall']*100:.1f}% of anomalies")
         logger.info(f"  {result['precision']*100:.1f}% of alerts are real anomalies")
+
+        # Operational status assessment
+        if far_per_hour <= 10:
+            status = "✅ EXCELLENT - Very low alarm fatigue risk"
+        elif far_per_hour <= 30:
+            status = "✅ GOOD - Operationally sustainable"
+        elif far_per_hour <= 60:
+            status = "⚠️ MODERATE - May cause some alarm fatigue"
+        else:
+            status = "❌ HIGH - Alarm fatigue risk"
+
+        logger.info(f"\n🚨 Operational Status: {status}")
         logger.info("="*60)
 
         return result
+
+    def analyze_far_at_thresholds(self, thresholds: List[float] = None) -> pd.DataFrame:
+        """
+        Analyze FPR and operational FAR at different thresholds.
+
+        FPR = FP / (FP + TN) = Statistical false positive rate
+        FAR = False alarms per hour = Operational metric
+
+        Args:
+            thresholds: List of thresholds to analyze
+
+        Returns:
+            DataFrame with metrics at each threshold
+        """
+        if thresholds is None:
+            thresholds = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50]
+
+        logger.info("\n" + "="*70)
+        logger.info("FALSE ALARM ANALYSIS AT DIFFERENT THRESHOLDS")
+        logger.info("="*70)
+        logger.info("\nFPR = False Positive Rate = FP / (FP + TN) [Statistical]")
+        logger.info("FAR = False Alarms per Hour [Operational - what operators experience]\n")
+
+        results = []
+        n_total = len(self.y_true_pooled)
+
+        for thresh in thresholds:
+            y_pred = (self.y_proba_pooled >= thresh).astype(int)
+            cm = confusion_matrix(self.y_true_pooled, y_pred)
+
+            if cm.shape == (2, 2):
+                tn, fp, fn, tp = cm.ravel()
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+
+            n_normal = fp + tn
+            fpr = fp / n_normal if n_normal > 0 else 0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+            f2 = fbeta_score(self.y_true_pooled, y_pred, beta=2, zero_division=0)
+
+            # Calculate operational FAR (false alarms per hour)
+            normal_rate_per_hour = n_normal / n_total * WINDOWS_PER_HOUR
+            far_per_hour = fpr * normal_rate_per_hour
+
+            results.append({
+                'threshold': thresh,
+                'recall': recall,
+                'precision': precision,
+                'fpr': fpr,
+                'far_per_hour': far_per_hour,
+                'f2_score': f2,
+                'tp': tp,
+                'fp': fp,
+                'tn': tn,
+                'fn': fn
+            })
+
+            logger.info(f"Threshold {thresh:.2f}: Recall={recall*100:5.1f}%, Precision={precision*100:5.1f}%, FPR={fpr*100:5.1f}%, FAR={far_per_hour:6.1f}/hour")
+
+        df = pd.DataFrame(results)
+
+        # Find best trade-off suggestion based on operational FAR
+        logger.info("\n" + "-"*70)
+        logger.info("OPERATIONAL TRADE-OFF ANALYSIS:")
+        logger.info("-"*70)
+
+        # Acceptable FAR thresholds (false alarms per hour)
+        for max_far_hour in [5, 10, 15, 30, 60]:
+            acceptable = df[df['far_per_hour'] <= max_far_hour]
+            if len(acceptable) > 0:
+                best = acceptable.loc[acceptable['recall'].idxmax()]
+                logger.info(f"  Max {max_far_hour:3d} FA/hour: Threshold={best['threshold']:.2f} → Recall={best['recall']*100:.1f}%, Precision={best['precision']*100:.1f}%, FAR={best['far_per_hour']:.1f}/hour")
+
+        # Recommendation based on operational sustainability
+        logger.info("\n" + "-"*70)
+        logger.info("RECOMMENDATION:")
+        logger.info("-"*70)
+
+        # Find threshold with FAR <= 30/hour and max recall
+        sustainable = df[df['far_per_hour'] <= 30]
+        if len(sustainable) > 0:
+            recommended = sustainable.loc[sustainable['recall'].idxmax()]
+            logger.info(f"  ⭐ Recommended: Threshold={recommended['threshold']:.2f}")
+            logger.info(f"     Recall:    {recommended['recall']*100:.1f}% (catches {recommended['recall']*100:.0f}% of anomalies)")
+            logger.info(f"     Precision: {recommended['precision']*100:.1f}%")
+            logger.info(f"     FAR:       {recommended['far_per_hour']:.1f} false alarms/hour")
+            logger.info(f"     Status:    Operationally sustainable ✅")
+        else:
+            logger.info("  ⚠️ No threshold achieves <= 30 FA/hour. Consider improving model or features.")
+
+        logger.info("="*70)
+
+        return df
 
     def validate_threshold_per_fold(self) -> pd.DataFrame:
         """
@@ -310,6 +458,9 @@ def tune_threshold_from_cv(
 
     # Find optimal threshold
     result = tuner.find_optimal_threshold_f2()
+
+    # Analyze FAR at different thresholds
+    far_analysis = tuner.analyze_far_at_thresholds()
 
     # Validate per fold
     fold_validation = tuner.validate_threshold_per_fold()

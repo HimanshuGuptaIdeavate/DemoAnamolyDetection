@@ -1,0 +1,49 @@
+{
+  "pipeline_run": {
+    "timestamp": "20260209_154245",
+    "start_time": "2026-02-09 15:42:48",
+    "end_time": "2026-02-09 15:43:08",
+    "duration_seconds": 20,
+    "status": "success"
+  },
+  "steps": {
+    "1_etl": {
+      "script": "scripts/run_etl_pipeline.py",
+      "status": "success"
+    },
+    "2_windowing": {
+      "script": "scripts/run_windowing_pipeline.py",
+      "status": "success"
+    },
+    "3_features": {
+      "script": "scripts/run_build_features.py",
+      "status": "success"
+    },
+    "4_preprocessing": {
+      "script": "scripts/run_preprocessing_pipeline.py",
+      "status": "success"
+    },
+    "5_training": {
+      "script": "scripts/run_xgboost_training.py",
+      "status": "success"
+    }
+  },
+  "artifacts": {
+    "data": [
+      "data/clean_data.parquet",
+      "data/windows.parquet",
+      "data/features_table.parquet",
+      "data/X.npy",
+      "data/y.npy",
+      "data/groups.npy"
+    ],
+    "models": [
+      "models/xgboost_model_*.joblib"
+    ],
+    "preprocessing": [
+      "artifacts/scaler_numeric.pkl",
+      "artifacts/encoder_categorical.pkl"
+    ]
+  },
+  "log_file": "logs/pipeline_runs/full_pipeline_20260209_154245.log"
+}

@@ -1,0 +1,1030 @@
+
+================================================================================
+WATCHTOWER ETL PIPELINE
+Data Curation and Cleaning
+================================================================================
+Start time: 2026-02-09 15:42:51
+Data path: data/raw/sutd
+================================================================================
+================================================================================
+WATCHTOWER ETL CONFIGURATION
+================================================================================
+
+Column Mappings: 29 mappings
+Required Columns: 6
+Numeric Columns: 12
+Clipping Ranges: 9
+
+Output Directory: data/parquet
+Clean Data File: clean_data.parquet
+================================================================================
+ℹ️  
+================================================================================
+ℹ️  WATCHTOWER ETL PIPELINE - DATA CURATION AND CLEANING
+ℹ️  ================================================================================
+ℹ️  Start time: 2026-02-09 15:42:51
+ℹ️  
+================================================================================
+ℹ️  STEP 1: EXTRACT - Loading Raw CSV Files
+ℹ️  ================================================================================
+ℹ️  Found 4 CSV file(s)
+ℹ️    ✓ Loaded Lvl4_AllRRUOn_Anomaly_label.csv: 2,327 rows
+ℹ️    ✓ Loaded Lvl5_AllRRUOn_Anomaly_label.csv: 2,031 rows
+ℹ️    ✓ Loaded Lvl6_1RRUOn_Anomaly_label.csv: 2,156 rows
+ℹ️    ✓ Loaded Lvl6_AllRRUOn_Anomaly_label.csv: 2,222 rows
+ℹ️  
+✅ Loaded 8,736 total rows from 4 files
+ℹ️  
+================================================================================
+ℹ️  STEP 2A: TRANSFORM - Standardize Column Names
+ℹ️  ================================================================================
+ℹ️  Renamed 16 columns:
+ℹ️    • Time → time_s
+ℹ️    • NR-ARFCN → nr_arfcn
+ℹ️    • PCI → pci
+ℹ️    • C-RNTI → c_rnti
+ℹ️    • RSRP → rsrp_dbm
+ℹ️    • RSRQ → rsrq_db
+ℹ️    • SINR → sinr_db
+ℹ️    • PDSCH_MCS → mcs_dl
+ℹ️    • PUSCH_MCS → mcs_ul
+ℹ️    • PDSCH PRBs → prb_dl
+ℹ️    ... and 6 more
+ℹ️  
+✅ Column standardization complete
+ℹ️  
+================================================================================
+ℹ️  STEP 2B: TRANSFORM - Type Coercion
+ℹ️  ================================================================================
+ℹ️    📅 Detected datetime format in time_s column, parsing...
+ℹ️    ✓ Converted datetime strings to relative seconds (per scenario)
+ℹ️  ✅ Coerced 11 numeric columns
+ℹ️  
+================================================================================
+ℹ️  STEP 2C: TRANSFORM - Add Absolute Timestamp
+ℹ️  ================================================================================
+ℹ️  Time range: 1497.62 seconds
+ℹ️  Number of records: 8,736
+ℹ️  Average sampling rate: 5.83 Hz
+ℹ️  Timestamp range: 1700000000000000000 to 1700001497624084480
+ℹ️  
+✅ Absolute timestamps added (ts_ns)
+ℹ️  
+================================================================================
+ℹ️  STEP 2D: TRANSFORM - Range Clipping (Sanity Checks)
+ℹ️  ================================================================================
+ℹ️    ✓ rsrp_dbm: All values within [-156, -31]
+ℹ️    ✂️  rsrq_db: Clipped 85 values to [-20, 3]
+ℹ️        (85 below, 0 above) - Empirical radio quality envelope
+ℹ️    ✂️  sinr_db: Clipped 2,131 values to [-10, 30]
+ℹ️        (36 below, 2,095 above) - Indoor testbed limits
+ℹ️    ✓ mcs_dl: All values within [0, 28]
+ℹ️    ✓ mcs_ul: All values within [0, 28]
+ℹ️    ✓ prb_dl: All values within [0, 273]
+ℹ️    ✓ prb_ul: All values within [0, 273]
+ℹ️    ✂️  app_dl_mbps: Clipped 4,938 values to [0, 100000000]
+ℹ️        (0 below, 4,938 above) - Avoid corrupt iPerf3 logs (testbed limit)
+ℹ️  
+✅ Clipped 7,154 values across 3 columns
+ℹ️  
+================================================================================
+ℹ️  STEP 2E: TRANSFORM - Handle Nulls and Duplicates
+ℹ️  ================================================================================
+ℹ️  
+TIER 1: Dropping rows with nulls in critical columns
+ℹ️    🗑️  Dropped 10 rows (0.11%) with critical nulls:
+ℹ️        sinr_db: 10 nulls
+ℹ️  
+TIER 2: Imputing nulls in operational columns
+ℹ️    ✓ mcs_dl: Filled 99 nulls using mode
+ℹ️        Reason: MCS is categorical, use most common value
+ℹ️    ✓ mcs_ul: Filled 98 nulls using mode
+ℹ️        Reason: MCS is categorical, use most common value
+ℹ️    ✓ prb_dl: Filled 99 nulls using median
+ℹ️        Reason: PRB usage is continuous, median is robust
+ℹ️    ✓ prb_ul: Filled 98 nulls using median
+ℹ️        Reason: PRB usage is continuous, median is robust
+ℹ️  
+Removing duplicate rows
+ℹ️    ✓ No duplicate rows found
+ℹ️  
+✅ Null handling complete:
+ℹ️     Rows: 8,736 → 8,726 (10 dropped)
+ℹ️     Critical nulls: 10 rows dropped
+ℹ️     Operational nulls: 394 values imputed
+ℹ️     Duplicates: 0 rows dropped
+ℹ️  
+================================================================================
+ℹ️  STEP 2F: TRANSFORM - Finalize Output
+ℹ️  ================================================================================
+ℹ️    ✓ Sorted by scenario_id and ts_ns
+ℹ️    ✓ Selected 17 columns
+ℹ️    ✓ Final shape: 8,726 rows × 17 columns
+ℹ️  
+================================================================================
+ℹ️  STEP 3: VALIDATE - GX Validation on Cleaned Data
+ℹ️  ================================================================================
+================================================================================
+WATCHTOWER DATA VALIDATION
+================================================================================
+✅ Loaded 8,726 samples from temp_clean.csv (csv)
+📋 Detected ETL-CLEANED data format (standardized column names)
+
+🔍 Validating Schema...
+  ✓ time_s
+  ✓ rsrp_dbm
+  ✓ rsrq_db
+  ✓ sinr_db
+  ✓ mcs_dl
+  ✓ app_dl_mbps
+  ✓ lab_anom
+
+🔍 Validating Null Values...
+  ✓ time_s: No nulls
+  ✓ rsrp_dbm: No nulls
+  ✓ rsrq_db: No nulls
+  ✓ sinr_db: No nulls
+  ✓ lab_anom: No nulls
+  ✓ mcs_dl: 0.00% nulls (≤5.0% allowed)
+  ✓ mcs_ul: 0.00% nulls (≤5.0% allowed)
+  ✓ app_dl_mbps: 0.00% nulls (≤2.0% allowed)
+
+🔍 Validating Numeric Ranges (3GPP Standards)...
+  ✓ rsrp_dbm: [-156, -31] (95%)
+  ✓ rsrq_db: [-20, 3] (95%)
+  ✓ sinr_db: [-10, 30] (95%)
+  ✓ mcs_dl: [0, 28] (strict)
+  ✓ mcs_ul: [0, 28] (strict)
+  ✓ prb_dl: [0, 273] (strict)
+  ✓ prb_ul: [0, 273] (strict)
+  ✓ app_dl_mbps: [0, 100000000] (95%)
+
+🔍 Validating Categorical Values...
+  ✓ lab_anom: [0, 1]
+  ✓ lab_inf: [0, 1]
+  ✓ lab_1rr: [0, 1]
+
+🔍 Validating Anomaly Signatures...
+  ✓ SINR separation: 14.6 dB (≥10 dB)
+  ✓ Anomaly SINR < 15 dB: 73.4%
+  ✓ Throughput drop: 39.6%
+
+🔍 Validating Data Quality...
+  ✓ Samples: 8,726 (≥5,000)
+  ✓ Duplicates: 0.00% (≤1.0%)
+  ✓ Anomaly rate: 45.6% (20.0-60.0%)
+  ✓ Overall nulls: 0.00% (≤5.0%)
+
+🔍 Validating Scenario-Specific Rules...
+  ✓ Lvl4_AllRRUOn: 2,324 samples, 35.6% anomalies
+  ✓ Lvl5_AllRRUOn: 2,025 samples, 58.5% anomalies
+  ✓ Lvl6_1RRUOn: 2,155 samples, 39.9% anomalies
+  ✓ Lvl6_AllRRUOn: 2,222 samples, 50.0% anomalies
+
+================================================================================
+VALIDATION SUMMARY: 41/41 checks passed
+================================================================================
+✅ All validation checks passed!
+
+📄 Validation report saved: reports/validation/validation_report_20260209_154251.json
+✅ ✅ All validation checks passed!
+ℹ️  
+================================================================================
+ℹ️  STEP 4: LOAD - Export to Parquet
+ℹ️  ================================================================================
+ℹ️    ✓ Saved to: data/parquet/clean_data.parquet
+ℹ️    ✓ File size: 0.17 MB
+ℹ️    ✓ Compression: snappy
+ℹ️    ✓ ETL statistics saved: reports/etl_report.json
+ℹ️    ✓ Clipping statistics saved: reports/clipping_statistics.json
+✅ ✅ Logged to MLflow
+ℹ️  
+================================================================================
+✅ ETL PIPELINE COMPLETE
+ℹ️  ================================================================================
+ℹ️  Duration: 0.82 seconds
+ℹ️  Input:  8,736 rows
+ℹ️  Output: 8,726 rows
+ℹ️  Dropped: 10 rows
+ℹ️  Clipped: 7,154 values
+ℹ️  Saved to: data/parquet/clean_data.parquet
+ℹ️  ================================================================================
+
+================================================================================
+PIPELINE SUMMARY
+================================================================================
+✅ Status: SUCCESS
+✅ Input rows: 8,736
+✅ Output rows: 8,726
+✅ Rows dropped: 10
+✅ Values clipped: 7,154
+✅ Duration: 0.82 seconds
+
+📄 Output file: data/parquet/clean_data.parquet
+📊 File size: 0.17 MB
+
+✅ Validation: PASSED (41/41 checks)
+
+📊 MLflow: Logged to experiment 'watchtower_etl'
+   View UI: mlflow ui
+
+================================================================================
+Next steps:
+  1. Review cleaned data: data/parquet/clean_data.parquet
+  2. Check ETL report: reports/etl_report.json
+  3. Proceed to windowing: python run_windowing.py
+================================================================================
+
+
+================================================================================
+WATCHTOWER WINDOWING PIPELINE
+5-Second Window Aggregation + Derived Features
+================================================================================
+Start time: 2026-02-09 15:42:55
+Input path: data/parquet/clean_data.parquet
+================================================================================
+================================================================================
+WATCHTOWER WINDOWING CONFIGURATION
+================================================================================
+
+Window Parameters:
+  Window size: 5 seconds
+  Sample rate: 2 Hz
+  Samples per window: 10
+  Min samples threshold: 7.0
+
+Aggregations:
+  rsrp_dbm: mean, std
+  rsrq_db: mean, std
+  sinr_db: mean, std, min, max
+  prb_dl: mean
+  prb_ul: mean
+  app_dl_mbps: mean, std
+  mcs_dl: mode
+  mcs_ul: mode
+  pci: mode
+
+Derived Features:
+  Delta features: 5
+  Ratio features: 3
+
+Output:
+  Windows file: data/parquet/windows.parquet
+  Expected columns: 28
+================================================================================
+ℹ️  
+================================================================================
+ℹ️  WATCHTOWER WINDOWING PIPELINE
+ℹ️  5-Second Windows + Derived Features
+ℹ️  ================================================================================
+ℹ️  Start time: 2026-02-09 15:42:55
+ℹ️  
+================================================================================
+ℹ️  STEP 1: Load Clean Data
+ℹ️  ================================================================================
+ℹ️  Loaded: 8,726 rows × 17 columns
+ℹ️  Time range: 1700000000000000000 to 1700001497624084480
+ℹ️  Scenarios: 4
+ℹ️  
+================================================================================
+ℹ️  STEP 2: Create Time Windows
+ℹ️  ================================================================================
+ℹ️  Window size: 5 seconds
+ℹ️  Expected samples per window: 10
+ℹ️    ✓ Lvl4_AllRRUOn_Anomaly_label: 232 windows created
+ℹ️    ✓ Lvl5_AllRRUOn_Anomaly_label: 202 windows created
+ℹ️    ✓ Lvl6_1RRUOn_Anomaly_label: 215 windows created
+ℹ️    ✓ Lvl6_AllRRUOn_Anomaly_label: 222 windows created
+ℹ️  
+✅ Created 871 windows from 8,726 samples
+ℹ️     Window creation rate: 99.8%
+ℹ️  
+================================================================================
+ℹ️  STEP 3: Add Derived Features
+ℹ️  ================================================================================
+ℹ️  
+Adding delta features (temporal changes):
+ℹ️    ✓ d_rsrp_mean: Change in rsrp_mean
+ℹ️    ✓ d_rsrq_mean: Change in rsrq_mean
+ℹ️    ✓ d_sinr_mean: Change in sinr_mean
+ℹ️    ✓ d_sinr_std: Change in sinr_std
+ℹ️    ✓ d_app_dl_mean: Change in app_dl_mean
+ℹ️  
+Adding ratio features (signal quality indices):
+ℹ️    ✓ rsrp_rsrq_ratio: Signal strength to quality ratio
+ℹ️    ✓ sinr_range: SINR volatility within window
+ℹ️    ✓ throughput_per_prb: Throughput efficiency (Mbps per PRB)
+ℹ️  
+✅ Added 5 delta features + 3 ratio features
+ℹ️  
+================================================================================
+ℹ️  STEP 4: Validation and Quality Checks
+ℹ️  ================================================================================
+ℹ️  ✓ Window count: 871 windows
+ℹ️  ✓ Gap ratio: 0.00% (avg), 0.00% (max)
+ℹ️  ✓ Anomaly rate: 50.40%
+ℹ️  
+Feature Statistics:
+ℹ️    SINR mean: 17.05 dB
+ℹ️    SINR std: 1.61 dB
+ℹ️    Throughput mean: 78288472.70 Mbps
+ℹ️  
+✅ Validation complete
+ℹ️  
+================================================================================
+ℹ️  STEP 5: Export Windows to Parquet
+ℹ️  ================================================================================
+ℹ️    ✓ CSV preview saved to: data/parquet/windows.csv
+ℹ️    ✓ Saved to: data/parquet/windows.parquet
+ℹ️    ✓ File size: 0.10 MB
+ℹ️    ✓ Rows: 871
+ℹ️    ✓ Columns: 28
+ℹ️    ✓ Metrics saved: reports/windowing_metrics.json
+ℹ️  
+Creating visualizations:
+ℹ️    ✓ Preview plot: reports/plots/windowing_preview.png
+ℹ️    ✓ Distribution plot: reports/plots/windowing_distribution.png
+✅ ✅ Logged to MLflow
+ℹ️  
+================================================================================
+✅ WINDOWING PIPELINE COMPLETE
+ℹ️  ================================================================================
+ℹ️  Duration: 3.20 seconds
+ℹ️  Input:  8,726 samples
+ℹ️  Output: 871 windows
+ℹ️  Anomaly rate: 50.4%
+ℹ️  Saved to: data/parquet/windows.parquet
+ℹ️  ================================================================================
+
+================================================================================
+PIPELINE SUMMARY
+================================================================================
+✅ Status: SUCCESS
+✅ Input samples: 8,726
+✅ Output windows: 871
+✅ Window size: 5 seconds
+✅ Samples per window: 10
+✅ Gap ratio (avg): 0.00%
+✅ Anomaly rate: 50.4%
+✅ Duration: 3.20 seconds
+
+📄 Output file: data/parquet/windows.parquet
+📊 File size: 0.10 MB
+📊 Columns: 28
+
+📈 Visualizations:
+   - SINR time series: reports/plots/windowing_preview.png
+   - Feature distributions: reports/plots/windowing_distribution.png
+
+📊 MLflow: Logged to experiment 'watchtower_windowing'
+   View UI: mlflow ui
+
+================================================================================
+Next steps:
+  1. Review windowed data: data/parquet/windows.parquet
+  2. Check metrics: reports/windowing_metrics.json
+  3. View plots: reports/plots/windowing_preview.png
+  4. Proceed to model training!
+================================================================================
+
+
+================================================================================
+WATCHTOWER FEATURE TABLE BUILDER
+Build features_table.parquet from windows.parquet
+================================================================================
+Start time: 2026-02-09 15:43:00
+Input path: data/parquet/windows.parquet
+================================================================================
+================================================================================
+WATCHTOWER FEATURE TABLE CONFIGURATION
+================================================================================
+
+Input: data/parquet/windows.parquet
+Output: data/parquet/features_table.parquet
+
+Features:
+  Existing numeric: 22
+  New derived: 7
+  Total numeric: 29
+  Categorical: 2
+  Total features: 31
+
+New Derived Features:
+  • prb_util_ratio: Downlink PRB utilization ratio
+  • hour_sin: Hour of day (sine component)
+  • hour_cos: Hour of day (cosine component)
+  • sinr_cv: SINR coefficient of variation
+  • throughput_efficiency: Throughput per unit SINR
+  • is_single_rru: Binary: 1=single RRU (Lvl6_1RRUOn), 0=all RRUs
+  • scenario_level: Numeric scenario level (4, 5, or 6)
+
+Output Columns: 33
+================================================================================
+ℹ️  
+================================================================================
+ℹ️  WATCHTOWER FEATURE TABLE BUILDER
+ℹ️  ================================================================================
+ℹ️  Start time: 2026-02-09 15:43:00
+ℹ️  
+================================================================================
+ℹ️  STEP 1: Load Windows
+ℹ️  ================================================================================
+ℹ️  Loaded: 871 windows
+ℹ️  Columns: 28
+ℹ️  Scenarios: 4
+ℹ️  
+================================================================================
+ℹ️  STEP 2: Sort Data (Required for Derivatives!)
+ℹ️  ================================================================================
+ℹ️  Sorted by: ['scenario_id', 'ts_start_ns']
+ℹ️  ✓ Order is now correct for derivative calculations
+ℹ️  
+================================================================================
+ℹ️  STEP 3: Create Derived Features
+ℹ️  ================================================================================
+ℹ️  ✓ Created: prb_util_ratio
+ℹ️      Downlink PRB utilization ratio
+ℹ️  ✓ Created: hour_sin
+ℹ️      Hour of day (sine component)
+ℹ️  ✓ Created: hour_cos
+ℹ️      Hour of day (cosine component)
+ℹ️  ✓ Created: sinr_cv
+ℹ️      SINR coefficient of variation
+ℹ️  ✓ Created: throughput_efficiency
+ℹ️      Throughput per unit SINR
+ℹ️  ✓ Created: is_single_rru
+ℹ️      Binary: 1=single RRU (Lvl6_1RRUOn), 0=all RRUs
+ℹ️  ✓ Created: scenario_level
+ℹ️      Numeric scenario level (4, 5, or 6)
+ℹ️  
+✅ Created 7 new derived features
+ℹ️  
+================================================================================
+ℹ️  STEP 4: Select Features (Fixed Order)
+ℹ️  ================================================================================
+ℹ️  Selected: 33/33 columns
+ℹ️    Metadata: 1
+ℹ️    Numeric: 29
+ℹ️    Categorical: 2
+ℹ️    Target: 1
+ℹ️  
+================================================================================
+ℹ️  STEP 5: Validate Data Quality
+ℹ️  ================================================================================
+ℹ️  ✓ Window count: 871
+ℹ️  ✓ No missing values
+ℹ️  
+Feature Statistics:
+ℹ️    SINR mean: 17.05 dB
+ℹ️    SINR range: 5.10 dB
+ℹ️    Throughput: 78288472.70 Mbps
+ℹ️  
+Target Distribution:
+ℹ️    Normal (0): 432 (49.6%)
+ℹ️    Anomaly (1): 439 (50.4%)
+ℹ️  
+✅ Validation complete
+ℹ️  
+================================================================================
+ℹ️  STEP 6: Save Feature Table
+ℹ️  ================================================================================
+ℹ️  ✓ Saved to: data/parquet/features_table.parquet
+ℹ️    Rows: 871
+ℹ️    Columns: 33
+ℹ️    Size: 0.12 MB
+ℹ️  ✓ Saved statistics: reports/feature_table_stats.json
+ℹ️  
+================================================================================
+✅ FEATURE TABLE BUILD COMPLETE
+ℹ️  ================================================================================
+ℹ️  Duration: 0.02 seconds
+ℹ️  Input: 871 windows
+ℹ️  Output: 871 rows × 33 columns
+ℹ️  Features: 31
+ℹ️  File: data/parquet/features_table.parquet
+ℹ️  ================================================================================
+
+================================================================================
+PIPELINE SUMMARY
+================================================================================
+✅ Status: SUCCESS
+✅ Input windows: 871
+✅ Output rows: 871
+✅ Output columns: 33
+✅ Features created: 31
+✅ New derived features: 7
+✅ Duration: 0.02 seconds
+
+📄 Output file:
+   data/parquet/features_table.parquet
+   Size: 0.12 MB
+   Shape: (871, 33)
+
+📊 Statistics saved to:
+   reports/feature_table_stats.json
+
+================================================================================
+Next steps:
+  1. Review feature table: data/parquet/features_table.parquet
+  2. Check statistics: reports/feature_table_stats.json
+  3. Proceed to scaling & encoding (next instruction)
+================================================================================
+
+Loading configuration from: configs/preprocessing_config.yaml
+Loaded config from configs/preprocessing_config.yaml
+Preprocessing pipeline initialized
+Starting preprocessing pipeline...
+
+================================================================================
+WATCHTOWER PREPROCESSING PIPELINE
+================================================================================
+Loading features from: data/parquet/features_table.parquet
+✅ Loaded 871 samples × 33 columns
+✅ All required columns present
+================================================================================
+FITTING STANDARD SCALER
+================================================================================
+Shape: (871, 29) (29 features)
+✅ Fitted StandardScaler
+
+Sample scaling (first 5 features):
+  rsrp_mean            → mean=-100.594, std=  13.669
+  rsrp_std             → mean=   1.975, std=   1.473
+  rsrq_mean            → mean= -11.332, std=   1.814
+  rsrq_std             → mean=   0.344, std=   0.618
+  sinr_mean            → mean=  17.047, std=  11.379
+================================================================================
+FITTING ONE-HOT ENCODER
+================================================================================
+Shape: (871, 2) (2 features)
+✅ Fitted OneHotEncoder (handle_unknown='ignore')
+
+Categories:
+  pci_mode        →  2 unique values
+  scenario_id     →  4 unique values
+
+Total one-hot features: 6
+================================================================================
+TRANSFORMING DATA
+================================================================================
+✅ Scaled numeric: (871, 29)
+✅ Encoded categorical: (871, 6)
+✅ Combined X: (871, 35)
+✅ Target y: (871,)
+   Class 0/1: [432 439], Anomaly rate: 50.4%
+✅ Metadata: (871,)
+================================================================================
+SAVING ARTIFACTS
+================================================================================
+✅ artifacts/scaler.joblib
+✅ artifacts/onehot.joblib
+✅ artifacts/feature_order.json (35 features)
+================================================================================
+SAVING CONFIGURATION
+================================================================================
+✅ configs/feature_config.yaml
+================================================================================
+EXPORTING DESIGN MATRICES
+================================================================================
+✅ data/parquet/X.npy
+   Shape: (871, 35), dtype: float32, size: 0.12 MB
+✅ data/parquet/y.npy
+   Shape: (871,), dtype: int8, size: 0.87 KB
+✅ data/parquet/meta_ts.npy
+   Shape: (871,), dtype: int64, size: 6.97 KB
+✅ data/parquet/preprocessing_features.csv
+   Shape: (871, 37), size: 0.31 MB
+================================================================================
+PREPROCESSING COMPLETE ✅
+================================================================================
+
+X: 871 samples × 35 features
+y: 871 samples
+
+✅ Ready for XGBoost training!
+================================================================================
+
+🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 
+WATCHTOWER PREPROCESSING PIPELINE
+Fit Transformers and Export Preprocessed Data
+🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 
+
+
+================================================================================
+✅ PREPROCESSING PIPELINE COMPLETE!
+================================================================================
+
+Outputs:
+  📊 X.npy: 871 samples × 35 features
+  🎯 y.npy: 871 labels
+  🔧 scaler.joblib: StandardScaler
+  🔧 onehot.joblib: OneHotEncoder
+  📋 feature_order.json: 35 features
+
+================================================================================
+NEXT STEPS:
+================================================================================
+1. Load X.npy and y.npy
+2. Perform train-test split (GroupKFold)
+3. Train XGBoost model
+4. Evaluate with SHAP values
+================================================================================
+
+Loading configuration from: configs/xgboost_config.yaml
+Loaded config from configs/xgboost_config.yaml
+XGBoost Trainer initialized
+Starting XGBoost training pipeline...
+
+🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 
+WATCHTOWER - XGBOOST TRAINING PIPELINE
+🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 
+
+================================================================================
+LOADING DATA
+================================================================================
+✅ Loaded X: (871, 35)
+✅ Loaded y: (871,)
+✅ Loaded groups: (871,)
+   Unique scenarios: ['Lvl4_AllRRUOn_Anomaly_label' 'Lvl5_AllRRUOn_Anomaly_label'
+ 'Lvl6_1RRUOn_Anomaly_label' 'Lvl6_AllRRUOn_Anomaly_label']
+   Scenario counts: {'Lvl4_AllRRUOn_Anomaly_label': 232, 'Lvl5_AllRRUOn_Anomaly_label': 202, 'Lvl6_1RRUOn_Anomaly_label': 215, 'Lvl6_AllRRUOn_Anomaly_label': 222}
+
+Class distribution:
+   Class 0: 432 samples (49.6%)
+   Class 1: 439 samples (50.4%)
+
+================================================================================
+GROUPKFOLD CROSS-VALIDATION
+================================================================================
+
+================================================================================
+FOLD 1/4
+================================================================================
+Train scenarios: ['Lvl5_AllRRUOn_Anomaly_label' 'Lvl6_1RRUOn_Anomaly_label'
+ 'Lvl6_AllRRUOn_Anomaly_label']
+Test scenarios: ['Lvl4_AllRRUOn_Anomaly_label']
+Train size: 639 samples
+Test size: 232 samples
+
+Class imbalance:
+   Negative samples: 309
+   Positive samples: 330
+   scale_pos_weight: 0.936
+
+XGBoost configuration:
+   n_estimators: 350
+   max_depth: 7
+   learning_rate: 0.08
+   subsample: 0.85
+   colsample_bytree: 0.85
+   colsample_bylevel: 0.9
+   reg_alpha: 0.3
+   reg_lambda: 1.5
+   gamma: 0.2
+   min_child_weight: 2
+   scale_pos_weight: 0.9363636363636364
+   n_jobs: -1
+   random_state: 42
+   tree_method: hist
+
+Training fold 1...
+
+Fold 1 Results:
+   ROC-AUC:   0.8768
+   PR-AUC:    0.8532
+   Brier:     0.4408
+   Accuracy:  0.4871
+   Precision: 0.4781
+   Recall:    1.0000
+   F1-Score:  0.6469
+
+================================================================================
+FOLD 2/4
+================================================================================
+Train scenarios: ['Lvl4_AllRRUOn_Anomaly_label' 'Lvl5_AllRRUOn_Anomaly_label'
+ 'Lvl6_1RRUOn_Anomaly_label']
+Test scenarios: ['Lvl6_AllRRUOn_Anomaly_label']
+Train size: 649 samples
+Test size: 222 samples
+
+Class imbalance:
+   Negative samples: 321
+   Positive samples: 328
+   scale_pos_weight: 0.979
+
+XGBoost configuration:
+   n_estimators: 350
+   max_depth: 7
+   learning_rate: 0.08
+   subsample: 0.85
+   colsample_bytree: 0.85
+   colsample_bylevel: 0.9
+   reg_alpha: 0.3
+   reg_lambda: 1.5
+   gamma: 0.2
+   min_child_weight: 2
+   scale_pos_weight: 0.9786585365853658
+   n_jobs: -1
+   random_state: 42
+   tree_method: hist
+
+Training fold 2...
+
+Fold 2 Results:
+   ROC-AUC:   0.9169
+   PR-AUC:    0.9453
+   Brier:     0.1538
+   Accuracy:  0.8378
+   Precision: 1.0000
+   Recall:    0.6757
+   F1-Score:  0.8065
+
+================================================================================
+FOLD 3/4
+================================================================================
+Train scenarios: ['Lvl4_AllRRUOn_Anomaly_label' 'Lvl5_AllRRUOn_Anomaly_label'
+ 'Lvl6_AllRRUOn_Anomaly_label']
+Test scenarios: ['Lvl6_1RRUOn_Anomaly_label']
+Train size: 656 samples
+Test size: 215 samples
+
+Class imbalance:
+   Negative samples: 304
+   Positive samples: 352
+   scale_pos_weight: 0.864
+
+XGBoost configuration:
+   n_estimators: 350
+   max_depth: 7
+   learning_rate: 0.08
+   subsample: 0.85
+   colsample_bytree: 0.85
+   colsample_bylevel: 0.9
+   reg_alpha: 0.3
+   reg_lambda: 1.5
+   gamma: 0.2
+   min_child_weight: 2
+   scale_pos_weight: 0.8636363636363636
+   n_jobs: -1
+   random_state: 42
+   tree_method: hist
+
+Training fold 3...
+
+Fold 3 Results:
+   ROC-AUC:   0.9776
+   PR-AUC:    0.9723
+   Brier:     0.1781
+   Accuracy:  0.7116
+   Precision: 0.5850
+   Recall:    0.9885
+   F1-Score:  0.7350
+
+================================================================================
+FOLD 4/4
+================================================================================
+Train scenarios: ['Lvl4_AllRRUOn_Anomaly_label' 'Lvl6_1RRUOn_Anomaly_label'
+ 'Lvl6_AllRRUOn_Anomaly_label']
+Test scenarios: ['Lvl5_AllRRUOn_Anomaly_label']
+Train size: 669 samples
+Test size: 202 samples
+
+Class imbalance:
+   Negative samples: 362
+   Positive samples: 307
+   scale_pos_weight: 1.179
+
+XGBoost configuration:
+   n_estimators: 350
+   max_depth: 7
+   learning_rate: 0.08
+   subsample: 0.85
+   colsample_bytree: 0.85
+   colsample_bylevel: 0.9
+   reg_alpha: 0.3
+   reg_lambda: 1.5
+   gamma: 0.2
+   min_child_weight: 2
+   scale_pos_weight: 1.1791530944625408
+   n_jobs: -1
+   random_state: 42
+   tree_method: hist
+
+Training fold 4...
+
+Fold 4 Results:
+   ROC-AUC:   0.9602
+   PR-AUC:    0.9819
+   Brier:     0.1368
+   Accuracy:  0.8663
+   Precision: 1.0000
+   Recall:    0.7955
+   F1-Score:  0.8861
+
+================================================================================
+CROSS-VALIDATION SUMMARY
+================================================================================
+
+Mean ROC-AUC:   0.9329 ± 0.0392 (4/4 valid folds)
+Mean PR-AUC:    0.9382 ± 0.0508
+Mean Brier:     0.2274 ± 0.1433 (lower is better)
+Mean Accuracy:  0.7257 ± 0.1727
+Mean Precision: 0.7658 ± 0.2740
+Mean Recall:    0.8649 ± 0.1572
+Mean F1-Score:  0.7686 ± 0.1019
+
+================================================================================
+TRAINING FINAL MODEL ON ALL DATA
+================================================================================
+
+Class imbalance:
+   Negative samples: 432
+   Positive samples: 439
+   scale_pos_weight: 0.984
+
+XGBoost configuration (final model):
+   n_estimators: 350
+   max_depth: 7
+   learning_rate: 0.08
+   subsample: 0.85
+   colsample_bytree: 0.85
+   colsample_bylevel: 0.9
+   reg_alpha: 0.3
+   reg_lambda: 1.5
+   gamma: 0.2
+   min_child_weight: 2
+   scale_pos_weight: 0.9840546697038725
+   n_jobs: -1
+   random_state: 42
+   tree_method: hist
+
+Training on 871 samples...
+✅ Final model trained successfully
+✅ Model saved: models/xgboost_model_20260209_154303.joblib
+🧹 Cleaned up 6 old plot file(s)
+✅ Saved confusion matrix: reports/plots/confusion_matrix_20260209_154303.png
+✅ Saved ROC curve: reports/plots/roc_curve_20260209_154303.png
+✅ Saved feature importance: reports/plots/feature_importance_20260209_154303.png
+✅ Saved calibration curve: reports/plots/calibration_curve_20260209_154303.png
+✅ Saved probability distribution: reports/plots/probability_distribution_20260209_154303.png
+
+================================================================================
+PROBABILITY DISTRIBUTION ANALYSIS
+================================================================================
+
+Normal Samples (Class 0): n=432
+  Mean probability:   0.371
+  Median probability: 0.040
+  Std probability:    0.430
+  Range:              [0.000, 0.999]
+
+Anomaly Samples (Class 1): n=439
+  Mean probability:   0.828
+  Median probability: 0.995
+  Std probability:    0.337
+  Range:              [0.001, 1.000]
+
+Class Separation Analysis:
+  Normal samples in overlap zone (0.3-0.7): 35 (8.1%)
+  Anomaly samples with high confidence (>0.7): 357 (81.3%)
+  Anomaly samples with low probability (<0.3): 64 (14.6%)
+
+  Mean probability difference: 0.457
+  Separation Quality: GOOD - Reasonable separation
+================================================================================
+Pooled 871 samples from 4 folds
+
+============================================================
+CV THRESHOLD TUNING WITH F2-SCORE
+============================================================
+
+Optimal Threshold: 0.1000
+F2-Score:          0.8312
+Precision:         0.6610
+Recall:            0.8884
+F1-Score:          0.7580
+Accuracy:          0.7141
+
+📊 FALSE ALARM ANALYSIS:
+  FPR (statistical):    46.3%
+  FAR (operational):    165.3 false alarms/hour
+  Total Alerts:         487.7 alerts/hour
+  Time Between FA:      0.4 minutes
+
+Confusion Matrix:
+  TP: 390 | FP: 200
+  FN: 49 | TN: 232
+
+Interpretation:
+  Catches 88.8% of anomalies
+  66.1% of alerts are real anomalies
+
+🚨 Operational Status: ❌ HIGH - Alarm fatigue risk
+============================================================
+
+======================================================================
+FALSE ALARM ANALYSIS AT DIFFERENT THRESHOLDS
+======================================================================
+
+FPR = False Positive Rate = FP / (FP + TN) [Statistical]
+FAR = False Alarms per Hour [Operational - what operators experience]
+
+Threshold 0.10: Recall= 88.8%, Precision= 66.1%, FPR= 46.3%, FAR= 165.3/hour
+Threshold 0.15: Recall= 87.5%, Precision= 66.6%, FPR= 44.7%, FAR= 159.5/hour
+Threshold 0.20: Recall= 86.8%, Precision= 67.1%, FPR= 43.3%, FAR= 154.6/hour
+Threshold 0.25: Recall= 86.3%, Precision= 67.3%, FPR= 42.6%, FAR= 152.1/hour
+Threshold 0.30: Recall= 85.4%, Precision= 67.6%, FPR= 41.7%, FAR= 148.8/hour
+Threshold 0.35: Recall= 85.0%, Precision= 67.9%, FPR= 40.7%, FAR= 145.5/hour
+Threshold 0.40: Recall= 84.7%, Precision= 68.4%, FPR= 39.8%, FAR= 142.2/hour
+Threshold 0.50: Recall= 83.6%, Precision= 68.6%, FPR= 38.9%, FAR= 138.9/hour
+
+----------------------------------------------------------------------
+OPERATIONAL TRADE-OFF ANALYSIS:
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+RECOMMENDATION:
+----------------------------------------------------------------------
+  ⚠️ No threshold achieves <= 30 FA/hour. Consider improving model or features.
+======================================================================
+
+============================================================
+THRESHOLD VALIDATION PER FOLD
+============================================================
+Fold 1: F2=0.8171, Precision=0.4719, Recall=1.0000
+Fold 2: F2=0.8019, Precision=0.9884, Recall=0.7658
+Fold 3: F2=0.8415, Precision=0.5276, Recall=0.9885
+Fold 4: F2=0.8621, Precision=1.0000, Recall=0.8333
+
+Summary (threshold=0.1000):
+  Mean F2:       0.8306 ± 0.0266
+  Mean Precision: 0.7470 ± 0.2864
+  Mean Recall:    0.8969 ± 0.1158
+  Stability:      GOOD (stable)
+============================================================
+✅ Saved threshold analysis plot: reports/plots/threshold_analysis.png
+✅ Saved optimal threshold config: configs/optimal_threshold_20260209_154303.json
+
+================================================================================
+LOGGING TO MLFLOW
+================================================================================
+2026/02/09 15:43:06 WARNING mlflow.models.model: `artifact_path` is deprecated. Please use `name` instead.
+Exception ignored in: <function Image.__del__ at 0x7914e06691c0>
+Traceback (most recent call last):
+  File "/home/himanshu/miniconda3/lib/python3.13/tkinter/__init__.py", line 4258, in __del__
+    self.tk.call('image', 'delete', self.name)
+RuntimeError: main thread is not in main loop
+✅ Logged to MLflow experiment: m0_xgboost
+   Run name: xgboost_groupkfold_20260209_154303
+
+================================================================================
+✅ TRAINING COMPLETE!
+================================================================================
+
+Model saved: models/xgboost_model_20260209_154303.joblib
+Mean CV ROC-AUC: 0.9329
+Mean CV PR-AUC:  0.9382
+Mean CV Brier:   0.2274 (lower is better)
+Mean CV Accuracy: 0.7257
+
+⭐ OPTIMAL THRESHOLD (F2): 0.1000
+   At this threshold:
+   - Recall: 0.8884 (catches 88.8% of anomalies)
+   - Precision: 0.6610
+   - FPR: 0.4630 (46.3% false positive rate)
+   - FAR: 165.3 false alarms/hour
+   - F2-Score: 0.8312
+
+================================================================================
+
+🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 
+WATCHTOWER - XGBOOST TRAINING PIPELINE
+M0: XGBoost Anomaly Detection Model
+🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 🎯 
+
+
+================================================================================
+✅ TRAINING PIPELINE COMPLETE!
+================================================================================
+
+Outputs:
+  🎯 Model: models/xgboost_model_*.joblib
+  📊 Plots: reports/plots/
+  📈 MLflow: mlruns/
+
+================================================================================
+NEXT STEPS:
+================================================================================
+1. View training results:
+   mlflow ui --backend-store-uri file://mlruns
+   Then open: http://localhost:5000
+
+2. Inspect model performance:
+   - Check reports/plots/ for visualizations
+   - Review confusion matrix and ROC curve
+
+3. Deploy model:
+   - Use saved model in models/ directory
+   - Implement FastAPI inference endpoint
+================================================================================
+

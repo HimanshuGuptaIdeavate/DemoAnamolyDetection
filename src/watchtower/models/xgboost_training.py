@@ -30,8 +30,10 @@ from sklearn.metrics import (
     f1_score,
     confusion_matrix,
     roc_curve,
-    precision_recall_curve
+    precision_recall_curve,
+    brier_score_loss
 )
+from sklearn.calibration import calibration_curve
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -241,6 +243,9 @@ class XGBoostTrainer:
                 roc_auc = roc_auc_score(y_test, y_pred_proba)
                 pr_auc = average_precision_score(y_test, y_pred_proba)
 
+            # Brier score (calibration metric - lower is better)
+            brier = brier_score_loss(y_test, y_pred_proba)
+
             accuracy = accuracy_score(y_test, y_pred)
             precision = precision_score(y_test, y_pred, zero_division=0)
             recall = recall_score(y_test, y_pred, zero_division=0)
@@ -249,6 +254,7 @@ class XGBoostTrainer:
             logger.info(f"\nFold {fold} Results:")
             logger.info(f"   ROC-AUC:   {roc_auc:.4f}" if not np.isnan(roc_auc) else f"   ROC-AUC:   N/A (single class)")
             logger.info(f"   PR-AUC:    {pr_auc:.4f}" if not np.isnan(pr_auc) else f"   PR-AUC:    N/A (single class)")
+            logger.info(f"   Brier:     {brier:.4f}")
             logger.info(f"   Accuracy:  {accuracy:.4f}")
             logger.info(f"   Precision: {precision:.4f}")
             logger.info(f"   Recall:    {recall:.4f}")
@@ -259,6 +265,7 @@ class XGBoostTrainer:
                 'fold': fold,
                 'roc_auc': roc_auc,
                 'pr_auc': pr_auc,
+                'brier': brier,
                 'accuracy': accuracy,
                 'precision': precision,
                 'recall': recall,
@@ -282,9 +289,12 @@ class XGBoostTrainer:
         roc_auc_std = np.nanstd(scores_df['roc_auc'])
         pr_auc_mean = np.nanmean(scores_df['pr_auc'])
         pr_auc_std = np.nanstd(scores_df['pr_auc'])
+        brier_mean = scores_df['brier'].mean()
+        brier_std = scores_df['brier'].std()
         valid_folds = scores_df['roc_auc'].notna().sum()
         logger.info(f"\nMean ROC-AUC:   {roc_auc_mean:.4f} ± {roc_auc_std:.4f} ({valid_folds}/{len(scores_df)} valid folds)")
         logger.info(f"Mean PR-AUC:    {pr_auc_mean:.4f} ± {pr_auc_std:.4f}")
+        logger.info(f"Mean Brier:     {brier_mean:.4f} ± {brier_std:.4f} (lower is better)")
         logger.info(f"Mean Accuracy:  {scores_df['accuracy'].mean():.4f} ± {scores_df['accuracy'].std():.4f}")
         logger.info(f"Mean Precision: {scores_df['precision'].mean():.4f} ± {scores_df['precision'].std():.4f}")
         logger.info(f"Mean Recall:    {scores_df['recall'].mean():.4f} ± {scores_df['recall'].std():.4f}")
@@ -487,7 +497,153 @@ class XGBoostTrainer:
         plt.close()
         
         return importance_df
-    
+
+    def plot_calibration_curve(
+        self,
+        y_true: np.ndarray,
+        y_pred_proba: np.ndarray,
+        n_bins: int = 10,
+        save_path: str = None
+    ):
+        """
+        Plot reliability (calibration) curve.
+
+        A well-calibrated model has predictions close to the diagonal.
+        - Above diagonal: model is underconfident (predicts lower than actual)
+        - Below diagonal: model is overconfident (predicts higher than actual)
+        """
+        # Compute calibration curve
+        fraction_of_positives, mean_predicted_value = calibration_curve(
+            y_true, y_pred_proba, n_bins=n_bins, strategy='uniform'
+        )
+
+        # Compute Brier score
+        brier = brier_score_loss(y_true, y_pred_proba)
+
+        # Plot
+        _, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+        # Calibration curve
+        ax1.plot([0, 1], [0, 1], 'k--', label='Perfectly Calibrated')
+        ax1.plot(mean_predicted_value, fraction_of_positives, 's-',
+                 label=f'XGBoost (Brier={brier:.4f})', linewidth=2, markersize=8)
+        ax1.set_xlabel('Mean Predicted Probability')
+        ax1.set_ylabel('Fraction of Positives (Actual)')
+        ax1.set_title('Calibration (Reliability) Curve')
+        ax1.legend(loc='lower right')
+        ax1.grid(alpha=0.3)
+        ax1.set_xlim([0, 1])
+        ax1.set_ylim([0, 1])
+
+        # Histogram of predicted probabilities
+        ax2.hist(y_pred_proba, bins=20, edgecolor='black', alpha=0.7)
+        ax2.set_xlabel('Predicted Probability')
+        ax2.set_ylabel('Count')
+        ax2.set_title('Distribution of Predicted Probabilities')
+        ax2.grid(alpha=0.3)
+
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            logger.info(f"✅ Saved calibration curve: {save_path}")
+        plt.close()
+
+        return brier
+
+    def plot_probability_distribution(
+        self,
+        cv_results: Dict,
+        save_path: str = None
+    ):
+        """
+        Plot probability distribution by class to diagnose model discrimination.
+
+        This helps understand:
+        - How well the model separates normal vs anomaly
+        - Why threshold might be low (overlapping distributions)
+        - Class separation quality
+        """
+        # Pool all predictions from CV folds
+        all_y_true = np.concatenate([fold['y_true'] for fold in cv_results['fold_predictions']])
+        all_y_prob = np.concatenate([fold['y_pred_proba'] for fold in cv_results['fold_predictions']])
+
+        # Separate by class
+        prob_normal = all_y_prob[all_y_true == 0]
+        prob_anomaly = all_y_prob[all_y_true == 1]
+
+        # Plot histogram
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        ax.hist(prob_normal, bins=50, alpha=0.6, color='green',
+                label=f'Normal (n={len(prob_normal)})', density=True)
+        ax.hist(prob_anomaly, bins=50, alpha=0.6, color='red',
+                label=f'Anomaly (n={len(prob_anomaly)})', density=True)
+
+        ax.axvline(x=0.10, color='blue', linestyle='--', linewidth=2,
+                   label='F2 Threshold (0.10)')
+        ax.axvline(x=0.50, color='orange', linestyle='--', linewidth=2,
+                   label='Default Threshold (0.50)')
+
+        ax.set_xlabel('Predicted Probability', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Density', fontsize=12, fontweight='bold')
+        ax.set_title('Probability Distribution by Class', fontsize=14, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=11)
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            logger.info(f"✅ Saved probability distribution: {save_path}")
+        plt.close()
+
+        # Log statistics
+        logger.info("\n" + "="*80)
+        logger.info("PROBABILITY DISTRIBUTION ANALYSIS")
+        logger.info("="*80)
+        logger.info(f"\nNormal Samples (Class 0): n={len(prob_normal)}")
+        logger.info(f"  Mean probability:   {prob_normal.mean():.3f}")
+        logger.info(f"  Median probability: {np.median(prob_normal):.3f}")
+        logger.info(f"  Std probability:    {prob_normal.std():.3f}")
+        logger.info(f"  Range:              [{prob_normal.min():.3f}, {prob_normal.max():.3f}]")
+
+        logger.info(f"\nAnomaly Samples (Class 1): n={len(prob_anomaly)}")
+        logger.info(f"  Mean probability:   {prob_anomaly.mean():.3f}")
+        logger.info(f"  Median probability: {np.median(prob_anomaly):.3f}")
+        logger.info(f"  Std probability:    {prob_anomaly.std():.3f}")
+        logger.info(f"  Range:              [{prob_anomaly.min():.3f}, {prob_anomaly.max():.3f}]")
+
+        # Calculate overlap metrics
+        overlap_normal = np.sum((prob_normal > 0.3) & (prob_normal < 0.7))
+        overlap_normal_pct = overlap_normal / len(prob_normal) * 100
+
+        anomaly_high_conf = np.sum(prob_anomaly > 0.7)
+        anomaly_high_conf_pct = anomaly_high_conf / len(prob_anomaly) * 100
+
+        anomaly_low_prob = np.sum(prob_anomaly < 0.3)
+        anomaly_low_prob_pct = anomaly_low_prob / len(prob_anomaly) * 100
+
+        logger.info(f"\nClass Separation Analysis:")
+        logger.info(f"  Normal samples in overlap zone (0.3-0.7): {overlap_normal} ({overlap_normal_pct:.1f}%)")
+        logger.info(f"  Anomaly samples with high confidence (>0.7): {anomaly_high_conf} ({anomaly_high_conf_pct:.1f}%)")
+        logger.info(f"  Anomaly samples with low probability (<0.3): {anomaly_low_prob} ({anomaly_low_prob_pct:.1f}%)")
+
+        # Separation quality assessment
+        mean_diff = prob_anomaly.mean() - prob_normal.mean()
+        if mean_diff > 0.5:
+            separation = "EXCELLENT - Classes well separated"
+        elif mean_diff > 0.3:
+            separation = "GOOD - Reasonable separation"
+        elif mean_diff > 0.15:
+            separation = "MODERATE - Some overlap"
+        else:
+            separation = "POOR - High overlap, consider feature engineering"
+
+        logger.info(f"\n  Mean probability difference: {mean_diff:.3f}")
+        logger.info(f"  Separation Quality: {separation}")
+        logger.info("="*80)
+
     def save_model(self, model: xgb.XGBClassifier) -> str:
         """Save trained model."""
         model_dir = self.config['artifacts']['model_dir']
@@ -533,7 +689,7 @@ class XGBoostTrainer:
             # Log CV results if available
             if cv_results:
                 scores_df = pd.DataFrame(cv_results['fold_scores'])
-                for metric in ['roc_auc', 'pr_auc', 'accuracy', 'precision', 'recall', 'f1']:
+                for metric in ['roc_auc', 'pr_auc', 'brier', 'accuracy', 'precision', 'recall', 'f1']:
                     mlflow.log_metric(f'cv_mean_{metric}', np.nanmean(scores_df[metric]))
                     mlflow.log_metric(f'cv_std_{metric}', np.nanstd(scores_df[metric]))
             
@@ -569,21 +725,23 @@ class XGBoostTrainer:
             # Clean up old plot files before generating new ones
             self._cleanup_old_plots(plots_dir)
 
-            # Use last fold for test evaluation plots
-            last_fold_preds = cv_results['fold_predictions'][-1]
-            y_test = last_fold_preds['y_true']
-            y_pred_proba = last_fold_preds['y_pred_proba']
-            y_pred = last_fold_preds['y_pred']
-            
+            # Pool ALL CV fold predictions (every sample tested exactly once)
+            y_test = np.concatenate([fold['y_true'] for fold in cv_results['fold_predictions']])
+            y_pred_proba = np.concatenate([fold['y_pred_proba'] for fold in cv_results['fold_predictions']])
+            threshold = self.config['evaluation']['probability_threshold']
+            y_pred = (y_pred_proba >= threshold).astype(int)
+
+            logger.info(f"\nPlots use pooled CV predictions: {len(y_test)} samples, threshold={threshold}")
+
             cm = confusion_matrix(y_test, y_pred)
             roc_auc = roc_auc_score(y_test, y_pred_proba)
-            
+
             # Plot confusion matrix
             self.plot_confusion_matrix(
                 cm,
                 save_path=f"{plots_dir}/confusion_matrix_{self.timestamp}.png"
             )
-            
+
             # Plot ROC curve
             self.plot_roc_curve(
                 y_test,
@@ -591,7 +749,7 @@ class XGBoostTrainer:
                 roc_auc,
                 save_path=f"{plots_dir}/roc_curve_{self.timestamp}.png"
             )
-            
+
             # Plot feature importance
             top_n = self.config['feature_importance']['top_n']
             self.plot_feature_importance(
@@ -599,20 +757,35 @@ class XGBoostTrainer:
                 top_n=top_n,
                 save_path=f"{plots_dir}/feature_importance_{self.timestamp}.png"
             )
-        
+
+            # Plot calibration curve
+            self.plot_calibration_curve(
+                y_test,
+                y_pred_proba,
+                save_path=f"{plots_dir}/calibration_curve_{self.timestamp}.png"
+            )
+
+            # Plot probability distribution by class
+            self.plot_probability_distribution(
+                cv_results,
+                save_path=f"{plots_dir}/probability_distribution_{self.timestamp}.png"
+            )
+
         # Aggregate metrics
         scores_df = pd.DataFrame(cv_results['fold_scores'])
         metrics = {
             'cv_mean_roc_auc': np.nanmean(scores_df['roc_auc']),
             'cv_mean_pr_auc': np.nanmean(scores_df['pr_auc']),
+            'cv_mean_brier': scores_df['brier'].mean(),
             'cv_mean_accuracy': scores_df['accuracy'].mean(),
             'cv_mean_precision': scores_df['precision'].mean(),
             'cv_mean_recall': scores_df['recall'].mean(),
             'cv_mean_f1': scores_df['f1'].mean()
         }
 
-        # CV Threshold Tuning with F2-Score
+        # Threshold selection: dynamic (F2-tuned) or manual (from config)
         if self.config.get('threshold_tuning', {}).get('enabled', True):
+            # Dynamic: F2-Score optimization finds the best threshold
             plots_dir = self.config['artifacts']['plots_dir']
             optimal_threshold, threshold_metrics = tune_threshold_from_cv(
                 cv_results,
@@ -620,14 +793,49 @@ class XGBoostTrainer:
                 plots_dir=plots_dir
             )
 
-            # Update metrics with threshold tuning results
             metrics['optimal_threshold'] = optimal_threshold
             metrics['threshold_f2_score'] = threshold_metrics['f2_score']
             metrics['threshold_precision'] = threshold_metrics['precision']
             metrics['threshold_recall'] = threshold_metrics['recall']
+            metrics['threshold_fpr'] = threshold_metrics['fpr']
+            metrics['threshold_far_per_hour'] = threshold_metrics['far_per_hour']
+            metrics['threshold_tp'] = threshold_metrics['tp']
+            metrics['threshold_fp'] = threshold_metrics['fp']
+            metrics['threshold_fn'] = threshold_metrics['fn']
+            metrics['threshold_tn'] = threshold_metrics['tn']
 
-            # Save optimal threshold to config for future use
             self._save_optimal_threshold(optimal_threshold, threshold_metrics)
+        else:
+            # Manual: calculate FAR/FPR at the config threshold
+            from watchtower.models.threshold_selection import WINDOWS_PER_HOUR
+            from sklearn.metrics import fbeta_score
+
+            threshold = self.config['evaluation']['probability_threshold']
+            all_y_true = np.concatenate([fold['y_true'] for fold in cv_results['fold_predictions']])
+            all_y_proba = np.concatenate([fold['y_pred_proba'] for fold in cv_results['fold_predictions']])
+            all_y_pred = (all_y_proba >= threshold).astype(int)
+
+            cm_pooled = confusion_matrix(all_y_true, all_y_pred)
+            if cm_pooled.shape == (2, 2):
+                tn, fp, fn, tp = cm_pooled.ravel()
+            else:
+                tn, fp, fn, tp = 0, 0, 0, 0
+
+            n_normal = fp + tn
+            fpr = fp / n_normal if n_normal > 0 else 0
+            normal_rate_per_hour = n_normal / len(all_y_true) * WINDOWS_PER_HOUR
+            far_per_hour = fpr * normal_rate_per_hour
+
+            metrics['threshold'] = threshold
+            metrics['threshold_precision'] = precision_score(all_y_true, all_y_pred, zero_division=0)
+            metrics['threshold_recall'] = recall_score(all_y_true, all_y_pred, zero_division=0)
+            metrics['threshold_f2_score'] = fbeta_score(all_y_true, all_y_pred, beta=2, zero_division=0)
+            metrics['threshold_fpr'] = fpr
+            metrics['threshold_far_per_hour'] = far_per_hour
+            metrics['threshold_tp'] = int(tp)
+            metrics['threshold_fp'] = int(fp)
+            metrics['threshold_fn'] = int(fn)
+            metrics['threshold_tn'] = int(tn)
 
         # Log to MLflow
         self.log_to_mlflow(final_model, metrics, cv_results)
@@ -639,13 +847,34 @@ class XGBoostTrainer:
         logger.info(f"\nModel saved: {model_path}")
         logger.info(f"Mean CV ROC-AUC: {metrics['cv_mean_roc_auc']:.4f}")
         logger.info(f"Mean CV PR-AUC:  {metrics['cv_mean_pr_auc']:.4f}")
+        logger.info(f"Mean CV Brier:   {metrics['cv_mean_brier']:.4f} (lower is better)")
         logger.info(f"Mean CV Accuracy: {metrics['cv_mean_accuracy']:.4f}")
+
         if 'optimal_threshold' in metrics:
-            logger.info(f"\n⭐ OPTIMAL THRESHOLD (F2): {metrics['optimal_threshold']:.4f}")
-            logger.info(f"   At this threshold:")
-            logger.info(f"   - Recall: {metrics['threshold_recall']:.4f} (catches {metrics['threshold_recall']*100:.1f}% of anomalies)")
-            logger.info(f"   - Precision: {metrics['threshold_precision']:.4f}")
-            logger.info(f"   - F2-Score: {metrics['threshold_f2_score']:.4f}")
+            used_threshold = metrics['optimal_threshold']
+            logger.info(f"\n⭐ OPTIMAL THRESHOLD (F2): {used_threshold:.4f}")
+        else:
+            used_threshold = metrics['threshold']
+            logger.info(f"\n📊 MANUAL THRESHOLD: {used_threshold}")
+
+        logger.info(f"   Confusion Matrix: TP={metrics.get('threshold_tp', 'N/A')}, FP={metrics.get('threshold_fp', 'N/A')}, FN={metrics.get('threshold_fn', 'N/A')}, TN={metrics.get('threshold_tn', 'N/A')}")
+        logger.info(f"   Recall:    {metrics['threshold_recall']:.4f} (catches {metrics['threshold_recall']*100:.1f}% of anomalies)")
+        logger.info(f"   Precision: {metrics['threshold_precision']:.4f} ({metrics['threshold_precision']*100:.1f}% of alerts are real)")
+        logger.info(f"   F2-Score:  {metrics['threshold_f2_score']:.4f}")
+        logger.info(f"   FPR:       {metrics['threshold_fpr']:.4f} ({metrics['threshold_fpr']*100:.1f}% false positive rate)")
+        logger.info(f"   FAR:       {metrics['threshold_far_per_hour']:.1f} false alarms/hour")
+        if metrics['threshold_far_per_hour'] > 0:
+            logger.info(f"   Time Between FA: {60/metrics['threshold_far_per_hour']:.1f} minutes")
+
+        if metrics['threshold_far_per_hour'] <= 10:
+            logger.info(f"   Status:    ✅ EXCELLENT - Very low alarm fatigue risk")
+        elif metrics['threshold_far_per_hour'] <= 30:
+            logger.info(f"   Status:    ✅ GOOD - Operationally sustainable")
+        elif metrics['threshold_far_per_hour'] <= 60:
+            logger.info(f"   Status:    ⚠️ MODERATE - May cause some alarm fatigue")
+        else:
+            logger.info(f"   Status:    ❌ HIGH - Alarm fatigue risk")
+
         logger.info("\n" + "="*80)
 
         return final_model, cv_results
@@ -659,6 +888,8 @@ class XGBoostTrainer:
                 'f2_score': metrics['f2_score'],
                 'precision': metrics['precision'],
                 'recall': metrics['recall'],
+                'fpr': metrics['fpr'],
+                'far_per_hour': metrics['far_per_hour'],
                 'f1_score': metrics['f1_score'],
                 'accuracy': metrics['accuracy']
             },
@@ -684,6 +915,8 @@ class XGBoostTrainer:
             'confusion_matrix_*.png',
             'roc_curve_*.png',
             'feature_importance_*.png',
+            'calibration_curve_*.png',
+            'probability_distribution_*.png',
             'threshold_analysis.png'
         ]
 

@@ -18,8 +18,13 @@ import logging
 import warnings
 from pathlib import Path
 
+# Use non-interactive matplotlib backend (avoids tkinter RuntimeError on cleanup)
+import matplotlib
+matplotlib.use('Agg')
+
 # Suppress MLflow deprecation warnings
 warnings.filterwarnings('ignore', category=FutureWarning, module='mlflow')
+warnings.filterwarnings('ignore', category=DeprecationWarning, module='mlflow')
 warnings.filterwarnings('ignore', message='.*artifact_path.*is deprecated.*')
 
 # Configure logging BEFORE imports to affect all loggers

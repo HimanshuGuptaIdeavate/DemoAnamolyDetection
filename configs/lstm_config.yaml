@@ -1,0 +1,79 @@
+# WATCHTOWER - LSTM Configuration
+# M1: LSTM model for Ensemble (Parallel Voting with XGBoost)
+# Input: Raw 2Hz sequences (871, 10, 4) from clean_data.parquet
+
+# Data Paths
+data:
+  X_lstm_path: 'data/parquet/X_lstm.npy'
+  y_path: 'data/parquet/y.npy'
+  groups_path: 'data/parquet/groups_lstm.npy'
+
+# Train-Test Split (MUST match XGBoost for ensemble alignment)
+split:
+  method: 'GroupKFold'
+  n_splits: 4                    # Same as XGBoost
+  random_state: 42               # Same as XGBoost
+
+# LSTM Architecture
+lstm:
+  # Input shape: (10 timesteps, 4 features)
+  units_1: 64                    # First LSTM layer units
+  units_2: 32                    # Second LSTM layer units
+  dropout: 0.3                   # Dropout after each LSTM layer
+  dense_units: 16                # Dense layer before output
+  activation: 'relu'             # Dense layer activation
+
+# Training Parameters
+training:
+  epochs: 100                    # Max epochs (early stopping will stop earlier)
+  batch_size: 32                 # Batch size
+  learning_rate: 0.001           # Adam learning rate
+  early_stopping_patience: 15   # Stop if no improvement for 15 epochs
+  reduce_lr_patience: 7          # Reduce LR if no improvement for 7 epochs
+  reduce_lr_factor: 0.5          # Reduce LR by half
+  min_lr: 0.00001                # Minimum learning rate
+  class_weight: 'auto'           # Computed as n_negative / n_positive
+  validation_split: 0.15         # Validation split within training fold
+
+# Evaluation
+evaluation:
+  probability_threshold: 0.10    # Same as XGBoost for fair comparison
+  generate_plots: true
+
+# Threshold Tuning (same F2-Score method as XGBoost)
+threshold_tuning:
+  enabled: true
+  method: 'f2_score'
+  save_plot: true
+
+# MLflow Tracking
+mlflow:
+  tracking_uri: './mlruns'
+  experiment_name: 'm1_lstm'
+  run_name_prefix: 'lstm_groupkfold'
+  log_model: true
+
+# Artifacts Output
+artifacts:
+  model_dir: 'models'
+  model_filename: 'lstm_model_{timestamp}.keras'
+  report_dir: 'reports'
+  plots_dir: 'reports/plots'
+
+# ==============================================================================
+# NOTES ON LSTM CONFIGURATION
+# ==============================================================================
+#
+# Architecture: 2-layer LSTM with dropout
+#   Input (10, 4) -> LSTM(64) -> Dropout(0.3) -> LSTM(32) -> Dropout(0.3)
+#   -> Dense(16, relu) -> Dense(1, sigmoid)
+#
+# Key Design Decisions:
+#   - 2 LSTM layers: captures both low-level and high-level temporal patterns
+#   - 64/32 units: sufficient for 4 features, avoids overfitting on 871 samples
+#   - Dropout 0.3: strong regularization for small dataset
+#   - Early stopping: prevents overfitting
+#   - class_weight: handles class imbalance (same approach as XGBoost)
+#   - Same GroupKFold splits as XGBoost: ensures ensemble alignment
+#
+# ==============================================================================

@@ -1,0 +1,55 @@
+# WATCHTOWER - Ensemble Configuration
+# Parallel Voting: XGBoost (M0) + LSTM (M1)
+# Combines predictions: prob_final = w * prob_xgb + (1-w) * prob_lstm
+
+# CV Prediction Paths (saved by each model's training pipeline)
+predictions:
+  xgb_y_true_path: 'reports/xgb_cv_y_true.npy'
+  xgb_y_proba_path: 'reports/xgb_cv_y_proba.npy'
+  lstm_y_true_path: 'reports/lstm_cv_y_true.npy'
+  lstm_y_proba_path: 'reports/lstm_cv_y_proba.npy'
+
+# Weight Tuning
+weight_tuning:
+  # Search range for XGBoost weight (w)
+  # prob_final = w * prob_xgb + (1-w) * prob_lstm
+  w_min: 0.0                     # 100% LSTM
+  w_max: 1.0                     # 100% XGBoost
+  w_step: 0.05                   # Test every 5%
+  optimize_metric: 'f2_score'    # Same as individual models
+
+# Evaluation
+evaluation:
+  probability_threshold: 0.10    # Can also be tuned after weight optimization
+  generate_plots: true
+
+# Threshold Tuning (on ensemble predictions)
+threshold_tuning:
+  enabled: true
+  method: 'f2_score'
+  save_plot: true
+
+# MLflow Tracking
+mlflow:
+  tracking_uri: './mlruns'
+  experiment_name: 'ensemble_xgb_lstm'
+  run_name_prefix: 'ensemble_voting'
+  log_model: false
+
+# Artifacts Output
+artifacts:
+  report_dir: 'reports'
+  plots_dir: 'reports/plots'
+
+# ==============================================================================
+# NOTES
+# ==============================================================================
+#
+# The ensemble combines XGBoost and LSTM predictions using weighted average:
+#   prob_final = w * prob_xgboost + (1 - w) * prob_lstm
+#
+# Weight w is optimized using CV predictions from both models.
+# Both models use the same GroupKFold splits (4 folds, same scenario_id groups),
+# so their predictions are directly comparable sample-by-sample.
+#
+# ==============================================================================

@@ -837,6 +837,9 @@ class XGBoostTrainer:
             metrics['threshold_fn'] = int(fn)
             metrics['threshold_tn'] = int(tn)
 
+        # Save CV predictions for ensemble (Phase 3 needs these)
+        self._save_cv_predictions(cv_results)
+
         # Log to MLflow
         self.log_to_mlflow(final_model, metrics, cv_results)
 
@@ -878,6 +881,21 @@ class XGBoostTrainer:
         logger.info("\n" + "="*80)
 
         return final_model, cv_results
+
+    def _save_cv_predictions(self, cv_results: Dict):
+        """Save CV predictions for ensemble (Phase 3 needs these)."""
+        y_true_all = np.concatenate([f['y_true'] for f in cv_results['fold_predictions']])
+        y_proba_all = np.concatenate([f['y_pred_proba'] for f in cv_results['fold_predictions']])
+
+        report_dir = Path(self.config['artifacts']['report_dir'])
+        report_dir.mkdir(parents=True, exist_ok=True)
+
+        np.save(report_dir / 'xgb_cv_y_true.npy', y_true_all)
+        np.save(report_dir / 'xgb_cv_y_proba.npy', y_proba_all)
+
+        logger.info(f"\nSaved XGBoost CV predictions for ensemble:")
+        logger.info(f"  reports/xgb_cv_y_true.npy  -> {y_true_all.shape}")
+        logger.info(f"  reports/xgb_cv_y_proba.npy -> {y_proba_all.shape}")
 
     def _save_optimal_threshold(self, threshold: float, metrics: Dict):
         """Save optimal threshold to a JSON file for production use."""

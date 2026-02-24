@@ -3,7 +3,7 @@ WATCHTOWER - LSTM Training Module
 Trains M1 LSTM model with GroupKFold cross-validation.
 
 Same CV structure as XGBoost to ensure ensemble alignment.
-Input: Raw 2Hz sequences (871, 10, 4)
+Input: Raw 2Hz sequences (871, 10, 16) — 8 raw + 8 delta features
 Output: Trained LSTM model + CV predictions (compatible with XGBoost format)
 
 Author: Himanshu's WATCHTOWER Project
@@ -46,7 +46,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Input, Bidirectional, BatchNormalization
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from tensorflow.keras.optimizers import Adam
 
@@ -103,7 +103,7 @@ class LSTMTrainer:
         Load LSTM data.
 
         Returns:
-            X: (n_windows, 10, 4) raw 2Hz sequences
+            X: (n_windows, 10, 16) sequences (8 raw + 8 delta features)
             y: (n_windows,) labels
             groups: (n_windows,) scenario IDs
         """
@@ -129,19 +129,25 @@ class LSTMTrainer:
 
     def build_model(self, input_shape: Tuple[int, int]) -> Sequential:
         """
-        Build LSTM model.
+        Build Bidirectional LSTM model.
 
         Architecture:
-            Input (10, 4)
-            -> LSTM(64, return_sequences=True)
+            Input (10, 16)
+            -> Bidirectional(LSTM(64, return_sequences=True))
+            -> BatchNormalization
+            -> Dropout(0.4)
+            -> Bidirectional(LSTM(32))
+            -> BatchNormalization
+            -> Dropout(0.4)
+            -> Dense(32, relu)
             -> Dropout(0.3)
-            -> LSTM(32)
-            -> Dropout(0.3)
-            -> Dense(16, relu)
             -> Dense(1, sigmoid)
 
+        Bidirectional reads sequences forward AND backward, capturing
+        patterns like "SINR drops then recovers" from both directions.
+
         Args:
-            input_shape: (timesteps, features) = (10, 4)
+            input_shape: (timesteps, features) = (10, 16)
 
         Returns:
             Compiled Keras Sequential model
@@ -149,15 +155,34 @@ class LSTMTrainer:
         lstm_config = self.config['lstm']
         train_config = self.config['training']
 
-        model = Sequential([
-            Input(shape=input_shape),
-            LSTM(lstm_config['units_1'], return_sequences=True),
-            Dropout(lstm_config['dropout']),
-            LSTM(lstm_config['units_2'], return_sequences=False),
-            Dropout(lstm_config['dropout']),
-            Dense(lstm_config['dense_units'], activation=lstm_config['activation']),
-            Dense(1, activation='sigmoid')
-        ])
+        use_bidirectional = lstm_config.get('bidirectional', True)
+
+        layers = [Input(shape=input_shape)]
+
+        # First LSTM layer
+        lstm_1 = LSTM(lstm_config['units_1'], return_sequences=True)
+        if use_bidirectional:
+            layers.append(Bidirectional(lstm_1))
+        else:
+            layers.append(lstm_1)
+        layers.append(BatchNormalization())
+        layers.append(Dropout(lstm_config['dropout']))
+
+        # Second LSTM layer
+        lstm_2 = LSTM(lstm_config['units_2'], return_sequences=False)
+        if use_bidirectional:
+            layers.append(Bidirectional(lstm_2))
+        else:
+            layers.append(lstm_2)
+        layers.append(BatchNormalization())
+        layers.append(Dropout(lstm_config['dropout']))
+
+        # Dense layers
+        layers.append(Dense(lstm_config['dense_units'], activation=lstm_config['activation']))
+        layers.append(Dropout(lstm_config.get('dense_dropout', 0.3)))
+        layers.append(Dense(1, activation='sigmoid'))
+
+        model = Sequential(layers)
 
         model.compile(
             optimizer=Adam(learning_rate=train_config['learning_rate']),
@@ -563,7 +588,9 @@ class LSTMTrainer:
             mlflow.log_params({
                 'lstm_units_1': self.config['lstm']['units_1'],
                 'lstm_units_2': self.config['lstm']['units_2'],
+                'bidirectional': self.config['lstm'].get('bidirectional', True),
                 'dropout': self.config['lstm']['dropout'],
+                'dense_dropout': self.config['lstm'].get('dense_dropout', 0.3),
                 'dense_units': self.config['lstm']['dense_units'],
                 'learning_rate': self.config['training']['learning_rate'],
                 'batch_size': self.config['training']['batch_size'],

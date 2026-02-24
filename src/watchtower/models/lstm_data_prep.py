@@ -6,7 +6,8 @@ Each 5-second window has 10 raw samples at 2Hz.
 XGBoost sees aggregated stats (mean, std, etc.) - LSTM sees the raw time-series.
 
 Input:  clean_data.parquet (8,726 raw 2Hz samples)
-Output: X_lstm.npy shape (871, 10, 4) - one sequence per window
+Output: X_lstm.npy shape (871, 10, 16) - one sequence per window
+        (8 raw features + 8 intra-window delta features)
         Reuses existing y.npy (871,) labels
 
 Author: Himanshu's WATCHTOWER Project
@@ -26,12 +27,16 @@ WINDOW_SEC = 5
 SAMPLE_RATE_HZ = 2
 SAMPLES_PER_WINDOW = WINDOW_SEC * SAMPLE_RATE_HZ  # 10
 
-# Raw features for LSTM input (4 key telemetry signals)
+# Raw features for LSTM input (8 telemetry signals)
 LSTM_RAW_FEATURES = [
     'sinr_db',       # Signal-to-Interference-Noise Ratio (PRIMARY anomaly indicator)
     'rsrp_dbm',      # Reference Signal Received Power
     'rsrq_db',       # Reference Signal Received Quality
     'app_dl_mbps',   # Downlink Throughput
+    'prb_dl',        # Physical Resource Blocks Downlink (resource allocation)
+    'prb_ul',        # Physical Resource Blocks Uplink (resource allocation)
+    'mcs_dl',        # Modulation & Coding Scheme Downlink (link adaptation)
+    'mcs_ul',        # Modulation & Coding Scheme Uplink (link adaptation)
 ]
 
 
@@ -40,10 +45,13 @@ class LSTMDataPrep:
     Prepare raw 2Hz sequences for LSTM from clean_data.parquet.
 
     Creates 1:1 mapping with XGBoost windows:
-    - Window #1: XGBoost sees 35 engineered features, LSTM sees (10, 4) raw sequence
+    - Window #1: XGBoost sees 29 engineered features, LSTM sees (10, 16) sequence
     - Window #2: same pattern
     - ...
     - Window #871: same pattern
+
+    Each sequence has 8 raw features + 8 intra-window delta features = 16 total.
+    Deltas capture rate-of-change within the 5-second window.
 
     This ensures parallel voting ensemble can combine predictions directly.
     """
@@ -52,11 +60,13 @@ class LSTMDataPrep:
         self,
         clean_data_path: str = 'data/parquet/clean_data.parquet',
         output_dir: str = 'data/parquet',
-        features: List[str] = None
+        features: List[str] = None,
+        add_deltas: bool = True
     ):
         self.clean_data_path = clean_data_path
         self.output_dir = output_dir
         self.features = features or LSTM_RAW_FEATURES
+        self.add_deltas = add_deltas
         self.stats = {}
 
     def load_clean_data(self) -> pd.DataFrame:
@@ -84,6 +94,28 @@ class LSTMDataPrep:
 
         return df
 
+    def compute_deltas(self, X: np.ndarray) -> np.ndarray:
+        """
+        Compute intra-window first differences (deltas) for each feature.
+
+        For a sequence of 10 timesteps, the delta at timestep t is:
+            delta[t] = value[t] - value[t-1]
+        The first timestep delta is set to 0.
+
+        This explicitly gives the LSTM rate-of-change information —
+        e.g., "SINR dropped 3dB between timestep 4 and 5."
+
+        Args:
+            X: shape (n_windows, 10, n_features) raw sequences
+
+        Returns:
+            deltas: shape (n_windows, 10, n_features) delta sequences
+        """
+        # diff along timestep axis, then pad first timestep with 0
+        deltas = np.diff(X, axis=1, prepend=X[:, :1, :])
+        # First timestep: diff of X[:,0,:] - X[:,0,:] = 0 (prepend duplicates first)
+        return deltas.astype(np.float32)
+
     def extract_sequences(self, df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Extract raw 2Hz sequences aligned with XGBoost windows.
@@ -93,8 +125,11 @@ class LSTMDataPrep:
         - Take every 10 consecutive samples
         - No overlap
 
+        If add_deltas=True, appends intra-window delta features,
+        doubling the feature count (8 raw + 8 deltas = 16).
+
         Returns:
-            X_lstm: shape (n_windows, 10, n_features) - raw sequences
+            X_lstm: shape (n_windows, 10, n_total_features) - sequences
             y: shape (n_windows,) - weak labels
             groups: shape (n_windows,) - scenario IDs for GroupKFold
         """
@@ -115,7 +150,7 @@ class LSTMDataPrep:
                 end_idx = start_idx + SAMPLES_PER_WINDOW
                 segment = scenario_df.iloc[start_idx:end_idx]
 
-                # Extract raw feature values: shape (10, 4)
+                # Extract raw feature values: shape (10, 8)
                 sequence = segment[self.features].values.astype(np.float32)
                 all_sequences.append(sequence)
 
@@ -126,15 +161,33 @@ class LSTMDataPrep:
                 # Scenario ID for GroupKFold
                 all_groups.append(scenario_id)
 
-        X_lstm = np.array(all_sequences)  # (n_windows, 10, 4)
+        X_raw = np.array(all_sequences)   # (n_windows, 10, 8)
         y = np.array(all_labels)           # (n_windows,)
         groups = np.array(all_groups)      # (n_windows,)
 
-        logger.info(f"\nExtracted sequences:")
-        logger.info(f"  X_lstm shape: {X_lstm.shape} (windows, timesteps, features)")
+        logger.info(f"\nExtracted raw sequences:")
+        logger.info(f"  X_raw shape: {X_raw.shape} (windows, timesteps, raw_features)")
+        logger.info(f"  Raw features: {self.features}")
+
+        # Add intra-window delta features
+        if self.add_deltas:
+            deltas = self.compute_deltas(X_raw)
+            X_lstm = np.concatenate([X_raw, deltas], axis=2)  # (n_windows, 10, 16)
+            delta_names = [f'd_{f}' for f in self.features]
+            all_feature_names = self.features + delta_names
+            logger.info(f"\nAdded intra-window deltas:")
+            logger.info(f"  Deltas shape: {deltas.shape}")
+            logger.info(f"  X_lstm shape: {X_lstm.shape} (raw + deltas)")
+            logger.info(f"  Delta features: {delta_names}")
+        else:
+            X_lstm = X_raw
+            all_feature_names = self.features
+
+        logger.info(f"\nFinal sequences:")
+        logger.info(f"  X_lstm shape: {X_lstm.shape} (windows, timesteps, total_features)")
         logger.info(f"  y shape:      {y.shape}")
         logger.info(f"  groups shape: {groups.shape}")
-        logger.info(f"  Features:     {self.features}")
+        logger.info(f"  All features ({len(all_feature_names)}): {all_feature_names}")
 
         # Class distribution
         unique, counts = np.unique(y, return_counts=True)
@@ -142,8 +195,11 @@ class LSTMDataPrep:
             logger.info(f"  Class {cls}: {count:,} ({count/len(y)*100:.1f}%)")
 
         self.stats['n_windows'] = len(y)
-        self.stats['n_features'] = len(self.features)
+        self.stats['n_raw_features'] = len(self.features)
+        self.stats['n_total_features'] = X_lstm.shape[2]
         self.stats['n_timesteps'] = SAMPLES_PER_WINDOW
+        self.stats['add_deltas'] = self.add_deltas
+        self.stats['all_feature_names'] = all_feature_names
 
         return X_lstm, y, groups
 
@@ -175,11 +231,15 @@ class LSTMDataPrep:
         return match
 
     def log_sequence_stats(self, X_lstm: np.ndarray):
-        """Log statistics about the raw sequences."""
+        """Log statistics about the sequences (raw + deltas)."""
+        all_names = self.stats.get('all_feature_names', self.features)
+
         logger.info("\nSequence Statistics (per feature):")
         logger.info("-"*60)
 
-        for i, fname in enumerate(self.features):
+        for i, fname in enumerate(all_names):
+            if i >= X_lstm.shape[2]:
+                break
             feature_data = X_lstm[:, :, i]
             logger.info(f"  {fname}:")
             logger.info(f"    Mean:  {feature_data.mean():.3f}")
@@ -212,7 +272,7 @@ class LSTMDataPrep:
         Run complete LSTM data preparation pipeline.
 
         Returns:
-            X_lstm: (n_windows, 10, 4) raw sequences
+            X_lstm: (n_windows, 10, 16) sequences (8 raw + 8 deltas)
             y: (n_windows,) labels
             groups: (n_windows,) scenario IDs
         """
@@ -235,7 +295,9 @@ class LSTMDataPrep:
         logger.info("LSTM DATA PREPARATION COMPLETE")
         logger.info("="*80)
         logger.info(f"  X_lstm: {X_lstm.shape} (windows={X_lstm.shape[0]}, timesteps={X_lstm.shape[1]}, features={X_lstm.shape[2]})")
-        logger.info(f"  Features: {self.features}")
+        logger.info(f"  Raw features ({len(self.features)}): {self.features}")
+        if self.add_deltas:
+            logger.info(f"  Delta features ({len(self.features)}): {[f'd_{f}' for f in self.features]}")
         logger.info(f"  Alignment with XGBoost: {'VERIFIED' if self.stats.get('alignment_verified') else 'FAILED'}")
         logger.info("="*80)
 

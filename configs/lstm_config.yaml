@@ -1,6 +1,6 @@
-# WATCHTOWER - LSTM Configuration
-# M1: LSTM model for Ensemble (Parallel Voting with XGBoost)
-# Input: Raw 2Hz sequences (871, 10, 4) from clean_data.parquet
+# WATCHTOWER - LSTM Configuration (v2 - Improved)
+# M1: Bidirectional LSTM model for Ensemble (Parallel Voting with XGBoost)
+# Input: 2Hz sequences (871, 10, 16) — 8 raw features + 8 intra-window deltas
 
 # Data Paths
 data:
@@ -16,20 +16,22 @@ split:
 
 # LSTM Architecture
 lstm:
-  # Input shape: (10 timesteps, 4 features)
+  # Input shape: (10 timesteps, 16 features)
   units_1: 64                    # First LSTM layer units
   units_2: 32                    # Second LSTM layer units
-  dropout: 0.3                   # Dropout after each LSTM layer
-  dense_units: 16                # Dense layer before output
+  bidirectional: true            # Bidirectional reads forward + backward
+  dropout: 0.4                   # Dropout after each LSTM layer (was 0.3)
+  dense_units: 32                # Dense layer before output (was 16)
+  dense_dropout: 0.3             # Dropout after dense layer
   activation: 'relu'             # Dense layer activation
 
 # Training Parameters
 training:
-  epochs: 100                    # Max epochs (early stopping will stop earlier)
-  batch_size: 32                 # Batch size
+  epochs: 150                    # Max epochs (was 100, more room with higher dropout)
+  batch_size: 16                 # Smaller batches = more gradient updates (was 32)
   learning_rate: 0.001           # Adam learning rate
-  early_stopping_patience: 15   # Stop if no improvement for 15 epochs
-  reduce_lr_patience: 7          # Reduce LR if no improvement for 7 epochs
+  early_stopping_patience: 20    # More patience with higher dropout (was 15)
+  reduce_lr_patience: 8          # Reduce LR if no improvement for 8 epochs (was 7)
   reduce_lr_factor: 0.5          # Reduce LR by half
   min_lr: 0.00001                # Minimum learning rate
   class_weight: 'auto'           # Computed as n_negative / n_positive
@@ -61,19 +63,31 @@ artifacts:
   plots_dir: 'reports/plots'
 
 # ==============================================================================
-# NOTES ON LSTM CONFIGURATION
+# NOTES ON LSTM CONFIGURATION (v2)
 # ==============================================================================
 #
-# Architecture: 2-layer LSTM with dropout
-#   Input (10, 4) -> LSTM(64) -> Dropout(0.3) -> LSTM(32) -> Dropout(0.3)
-#   -> Dense(16, relu) -> Dense(1, sigmoid)
+# Changes from v1:
+#   - Features: 4 raw -> 8 raw + 8 deltas = 16 total
+#     Raw: sinr_db, rsrp_dbm, rsrq_db, app_dl_mbps, prb_dl, prb_ul, mcs_dl, mcs_ul
+#     Deltas: intra-window first differences for each raw feature
+#
+#   - Architecture: Bidirectional LSTM with BatchNormalization
+#     Input (10, 16) -> BiLSTM(64) -> BN -> Dropout(0.4)
+#     -> BiLSTM(32) -> BN -> Dropout(0.4)
+#     -> Dense(32, relu) -> Dropout(0.3) -> Dense(1, sigmoid)
+#
+#   - Hyperparameters tuned for small dataset (871 samples):
+#     dropout: 0.3 -> 0.4 (stronger regularization)
+#     dense_units: 16 -> 32 (more capacity before output)
+#     batch_size: 32 -> 16 (more gradient updates per epoch)
+#     epochs: 100 -> 150 (more room with higher dropout)
+#     early_stopping: 15 -> 20 (more patience with higher dropout)
 #
 # Key Design Decisions:
-#   - 2 LSTM layers: captures both low-level and high-level temporal patterns
-#   - 64/32 units: sufficient for 4 features, avoids overfitting on 871 samples
-#   - Dropout 0.3: strong regularization for small dataset
-#   - Early stopping: prevents overfitting
-#   - class_weight: handles class imbalance (same approach as XGBoost)
+#   - Bidirectional: reads forward + backward, captures symmetric patterns
+#   - BatchNormalization: stabilizes training, reduces internal covariate shift
+#   - 8 raw features: covers signal quality + resource allocation + throughput
+#   - Intra-window deltas: explicit rate-of-change within 5-sec windows
 #   - Same GroupKFold splits as XGBoost: ensures ensemble alignment
 #
 # ==============================================================================

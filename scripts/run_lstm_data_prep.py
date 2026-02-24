@@ -7,7 +7,8 @@ Usage:
     python scripts/run_lstm_data_prep.py
 
 Output:
-    data/parquet/X_lstm.npy  - shape (871, 10, 4)
+    data/parquet/X_lstm.npy  - shape (871, 10, 16)
+        8 raw features + 8 intra-window delta features
     data/parquet/groups_lstm.npy - scenario IDs
 
 Author: Himanshu's WATCHTOWER Project

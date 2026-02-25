@@ -6,3 +6,5 @@
     -   Expanded features: from 4 raw features to 8 raw + 8 delta features (16 total)
     -   Upgraded architecture: Bidirectional LSTM with Batch Normalization
     -   Hyperparameters tuned specifically for a small dataset (871 samples)
+
+* Ensemble_XGBOOST_1D-CNN_Stacking – Forked from main Branch(where only XGBOOST is implemented). Branch implementing the ensemble approach combining XGBoost and 1D-CNN including stacking
